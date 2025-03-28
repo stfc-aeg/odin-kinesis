@@ -1,2 +1,2 @@
-# odin-kinetics
-odin-control adapter to operate Thorlabs motor controllers
+# odin-kinesis
+Software package for controlling motors (initially Thorlabs motors) with [odin-control](https://github.com/odin-detector/odin-control).

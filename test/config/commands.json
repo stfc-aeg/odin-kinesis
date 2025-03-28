@@ -1,0 +1,202 @@
+{
+    "req_info": {
+      "__reference": "(p.52) get hardware info",
+      "command": "05 00 00 00 50 01",
+      "response_code": "06 00",
+      "response_name": "get_info",
+      "response_length": 84,
+      "compatible_devices": null
+    },
+    "req_enccounter": {
+      "__reference": "(p.63) get enccounter count",
+      "command": "0A 04 01 00 50 01",
+      "response_code": "0B 04",
+      "response_name": "get_enccounter",
+      "response_length": 6,
+      "compatible_devices": null
+    },
+    "req_poscounter": {
+      "__reference": "(p.64) get position count",
+      "command": "11 04 01 00 50 01",
+      "response_code": "12 04",
+      "response_name": "get_poscounter",
+      "response_length": 6,
+      "compatible_devices": null
+    },
+    "req_mmiparams": {
+      "__reference": "(p.137) get settings for top panel and wheel",
+      "command": "21 05 01 00 50 01",
+      "response_code": "22 05",
+      "response_name": "get_kcubemmiparams",
+      "response_length": 36,
+      "compatible_devices": ["KDC101", "KST101", "KBD101", "BBD30*"]
+    },
+    "identify": {
+      "__reference": "(p.46) flash screen",
+      "command": "23 02 00 00 50 01",
+      "response_code": null,
+      "response_name": null,
+      "response_length": 0,
+      "compatible_devices": null
+    },
+    "req_genmoveparams": {
+      "__reference": "(p.73) get backlash settings",
+      "command": "3B 04 01 00 50 01",
+      "response_code": "3C 04",
+      "response_name": "get_genmoveparams",
+      "response_length": 6,
+      "compatible_devices": null
+    },
+    "req_homeparams": {
+      "__reference": "(p.76) get home parameters",
+      "command": "41 04 01 00 50 01",
+      "response_code": "42 04",
+      "response_name": "get_homeparams",
+      "response_length": 14,
+      "compatible_devices": null
+    },
+    "move_home": {
+      "__reference": "(p.80) move home",
+      "command": "43 04 01 00 50 01",
+      "response_code": "44 04",
+      "response_name": "move_homed",
+      "response_length": 0,
+      "compatible_devices": null
+    },
+    "set_moverelparams": {
+      "__reference": "(p.74) set relative movement parameter (append +4 bytes: movement value in encoder counts)",
+      "command": "45 04 06 00 D0 01 01 00",
+      "response_code": null,
+      "response_name": null,
+      "response_length": 0,
+      "compatible_devices": null
+    },
+    "req_moverelparams": {
+      "__reference": "# (p.74) get rel movement parameters",
+      "command": "46 04 01 00 50 01",
+      "response_code": "47 04",
+      "response_name": "get_moverelparams",
+      "response_length": 6,
+      "compatible_devices": null
+    },
+    "move_relative_param": {
+      "__reference": "(p.80) move predefined relative (set by set_moverelparams)",
+      "command": "48 04 01 00 50 01",
+      "response_code": "64 04",
+      "response_name": "move_completed",
+      "response_length": 14,
+      "compatible_devices": null
+    },
+    "move_relative_arg": {
+      "__reference": "(p.80) move relative by given amount (append +4 bytes: movement value in encoder counts)",
+      "command": "48 04 06 00 D0 01 01 00",
+      "response_code": "64 04",
+      "response_name": "move_completed",
+      "response_length": 14,
+      "compatible_devices": null
+    },
+    "set_moveabsparams": {
+      "__reference": "(p.75) set absolute movement parameter (append +4 bytes: movement value in encoder counts)",
+      "command": "50 04 06 00 D0 01 01 00",
+      "response_code": null,
+      "response_name": null,
+      "response_length": 0,
+      "compatible_devices": null
+    },
+    "req_moveabsparams": {
+      "__reference": "(p.75) get absolute movement parameters",
+      "command": "51 04 01 00 50 01",
+      "response_code": "52 04",
+      "response_name": "get_moveabsparams",
+      "response_length": 6,
+      "compatible_devices": null
+    },
+    "move_absolute_param": {
+      "__reference": "(p.80) move predefined absolute",
+      "command": "53 04 01 00 50 01",
+      "response_code": "64 04",
+      "response_name": "move_completed",
+      "response_length": 14,
+      "compatible_devices": null
+    },
+    "move_absolute_arg": {
+      "__reference": "(p.80) move to absolute (append +4 bytes: location value in encoder counts)",
+      "command": "53 04 06 00 D0 01 01 00",
+      "response_code": "64 04",
+      "response_name": "move_completed",
+      "response_length": 14,
+      "compatible_devices": null
+    },
+    "req_velparams": {
+        "__reference": "(p.66) get the velocity parameters",
+        "command": "14 04 01 00 50 01",
+        "response_code": "15 04",
+        "response_name": "get_velparams",
+        "response_length": 14,
+        "compatible_devices": null
+    },
+    "set_velparams": {
+        "__reference": "(p.66) set the velocity parameters (append +12 bytes: 4 minimum, 4 acceleration, 4 maximum velocity)",
+        "command": "13 04 0E 00 50 01 01 00",
+        "response_code": null,
+        "response_name": null,
+        "response_length": 0,
+        "compatible_devices": null
+    },
+    "move_velocity_forward": {
+      "__reference": "(p.87) move at fixed speed forward",
+      "command": "57 04 01 02 50 01",
+      "response_code": "64 04",
+      "response_name": "move_completed",
+      "response_length": 14,
+      "compatible_devices": null
+    },
+    "move_velocity_backward": {
+      "__reference": "(p.87) move at fixed speed backward",
+      "command": "57 04 01 01 50 01",
+      "response_code": "64 04",
+      "response_name": "move_completed",
+      "response_length": 14,
+      "compatible_devices": null
+    },
+    "move_stop": {
+      "__reference": "(p.88) stop movement",
+      "command": "65 04 01 00 50 01",
+      "response_code": "66 04",
+      "response_name": "move_stopped",
+      "response_length": 14,
+      "compatible_devices": null
+    },
+    "req_jogparams": {
+        "__reference": "(p.68) get jog parameters",
+        "command": "17 04 01 00 50 01",
+        "response_code": "18 04",
+        "response_name": "get_jogparams",
+        "response_length": 22,
+        "compatible_devices": null
+    },
+    "set_jogparams": {
+        "__reference": "(p.68) set the jog parameters (append +20 bytes: 2 jog mode, 4 jog step size, 4 min, 4 acceleration, 4 max velocity, 2 stop mode",
+        "command": "16 04 16 00 50 01 01 00",
+        "response_code": null,
+        "response_name": null,
+        "response_length": 0,
+        "compatible_devices": null
+    },
+    "move_jog_forward": {
+      "__reference": "(p.86) jog forward",
+      "command": "6A 04 01 02 50 01",
+      "response_code": "64 04",
+      "response_name": "move_completed",
+      "response_length": 14,
+      "compatible_devices": null
+    },
+    "move_jog_backward": {
+      "__reference": "(p.86) jog backward",
+      "command": "6A 04 01 01 50 01",
+      "response_code": "64 04",
+      "response_name": "move_completed",
+      "response_length": 14,
+      "compatible_devices": null
+    }
+  }
