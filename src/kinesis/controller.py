@@ -18,7 +18,6 @@ import time
 import logging
 import json
 
-from kinesis.cmds import CMD_RSP
 from kinesis.motor_controller import MotorController
 
 class KinesisError(Exception):
@@ -46,9 +45,12 @@ class KinesisController():
         self.options = options
         # Options
         self.bg_await_reply_enable = bool(int(self.options.get('bg_await_reply_enable', 1)))
-        self.bg_await_reply_interval = int(self.options.get('bg_await_reply_interval', 0.5))
+        self.bg_await_reply_interval = float(self.options.get('bg_await_reply_interval', 0.5))
         device_config = self.options.get('device_config', 'test/config/devices.json')
 
+        self.current_command = None
+
+        self.tree = {}
 
         # Create controller children
         self.controllers = {}
@@ -59,26 +61,19 @@ class KinesisController():
                 controller_type = details['device_type']
                 stages = details['stages']
                 port = details['port']
-                self.controllers[name] = MotorController(port, controller_type, stages)
+                bay_system = details['bay_system']
+                self.controllers[name] = MotorController(port, controller_type, bay_system, stages)
 
+                self.tree[name] = self.controllers[name].tree
 
         self._start_background_task()
 
         self.param_tree = ParameterTree({
-            'vars': {
-                'current_command': (lambda: self.current_command, None),
-                'expected_response': (lambda: self.expected_response, None),
-                'task_interval': (lambda: self.bg_await_reply_interval, None)
-            },
-            'commands': {
-                'move_abs': (lambda: None, self.move_absolute),
-                'move_rel': (lambda: None, self.move_relative),
-                'home': (lambda: None, self.move_home),
-                'position': (lambda: self.get_position(), None)
-            }
+            'bg_task_interval': (lambda: self.bg_await_reply_interval, None),
+            'controllers': self.tree
         })
 
-        logging.debug('DummyAdapter loaded')
+        logging.debug('KinesisAdapter loaded')
 
     # ------------ background functions ------------
 
@@ -89,6 +84,11 @@ class KinesisController():
         """
         while self.bg_await_reply_enable:
             # Only need to check for replies if there's an active command
+
+            # Check every controller
+            for name, controller in self.controllers.items():
+                # Do a queue check for the controller
+                controller._check_reply_queues()
             
             if self.current_command:
                 # Behaviour is otherwise standard receive-reply affair
@@ -149,7 +149,7 @@ class KinesisController():
             return self.param_tree.get(path, with_metadata)
         except ParameterTreeError as error:
             logging.error(error)
-            raise LiveXError(error)
+            raise KinesisError(error)
 
     def set(self, path, data):
         """Set parameters in the controller.
@@ -165,7 +165,7 @@ class KinesisController():
             self.param_tree.set(path, data)
         except ParameterTreeError as error:
             logging.error(error)
-            raise LiveXError(error)
+            raise KinesisError(error)
 
     def delete(self, path, request):
         """Handle an HTTP DELETE request.
@@ -192,6 +192,5 @@ class KinesisController():
         """
         logging.debug("KinesisAdapter cleanup")
         self.bg_await_reply_enable = False
-
-class KinesisError(Exception):
-    pass
+        for controller in self.controllers.values():
+            controller.close_serial()

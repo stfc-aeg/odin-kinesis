@@ -48,7 +48,7 @@ name = "Mika Shearwood"
 
 [tool.setuptools_scm]
 version_file = "src/kinesis/_version.py"
-root = ".."
+root = "."
 
 [tool.mypy]
 ignore_missing_imports = true # Ignore missing stubs in imported modules

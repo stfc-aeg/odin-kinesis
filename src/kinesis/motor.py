@@ -1,4 +1,8 @@
-"""Class to handle the state of a given motor."""
+"""Class to handle the state of a given motor.
+It tracks the encoder/scale-factor values for the stage type, the command queue for that motor
+and handles conversions for that motor.
+"""
+import logging
 
 class Motor():
     """Class to represent the state of a motor stage."""
@@ -10,20 +14,90 @@ class Motor():
     # ==> VEL (PRM1-Z8) = 6.2942e4 x Vel
     # ==> ACC (PRM1-Z8) = 14.6574 x Acc
 
-    def __init__(self, chan_ident: int=1, stage_type: dict=None):
+    def __init__(self, name, chan_ident: int=1, stage_type: str=None, controller=None, destination=0x50):
+        self.name = name
         self.channel_identity = chan_ident  # For commands
         self.command_queue = []
         self.current_command = None
         self.expected_response = None
 
-        # Device parameters should be provided by motor controller
-        if not stage_type:
-            stage_type=STAGETYPES.MTS50_Z8
-        self.enc_cnt = stage_type['enc_cnt']
-        self.sf_vel  = stage_type['sf_vel']
-        self.sf_acc  = stage_type['sf_acc']
-        # These will need to be fetched from a list somewhere
+        self.controller = controller
+        self.destination = destination
 
+        self.moving = False
+        self.current_position = 0
+        self.target_position = None
+
+        self.DEBUG = False
+
+        # Device parameters should be provided by motor controller
+        self.stage_type = getattr(STAGETYPES, stage_type, STAGETYPES.MTS50_Z8)
+
+        self.enc_cnt = int(self.stage_type['enc_cnt'])
+        self.sf_vel  = int(self.stage_type['sf_vel'])
+        self.sf_acc  = int(self.stage_type['sf_acc'])
+
+        self.tree = {
+            'position': {
+                'home': (lambda: None, self.home),
+                'set_target_pos': (lambda: self.target_position, self.set_target_position),
+            },
+            'command': {
+                'current_command': (lambda: self.current_command, None),
+                'expected_response': (lambda: self.expected_response, None),
+                'command_queue': (lambda: self.command_queue, None)
+            }
+        }
+
+    # ------------ Conversion functions ------------
+
+    def convert_distance(self, movement):
+        """Convert a movement to an encoder increment in the required binary format.
+        The movement may be linear or rotational, depending on the device.
+        :param movement: movement change - e.g.: 5mm, 20 degrees
+        :return bytes: movement translated to encoder units
+        """
+        # Movement to encoder counts
+        mv_enccnt = int(movement * self.enc_cnt)
+        # To bytes
+        mv_enccnt_bytes = mv_enccnt.to_bytes(4, byteorder='little',signed=True)
+
+        if self.DEBUG:
+            logging.debug(f"enccnt: {mv_enccnt}, mv_enccnt_bytes, {mv_enccnt_bytes.hex()}")
+        return mv_enccnt_bytes
+
+    def convert_enccnt(self, enccnt):
+        """Convert an encoder count back to a readable figure.
+        The unit depends on the stage: mm, degrees, etc.
+        :param enccnt: reported encoder count
+        :return int: rounded converted encoder value
+        """
+        # Integer from bytes
+        enccnt_int = int.from_bytes(enccnt, byteorder='little',signed=True)
+        # Convert to unit from encoder count
+        fig = round(enccnt_int/self.enc_cnt, 1)
+        if self.DEBUG:
+            logging.debug(f"enccnt: {enccnt}, result figure: {fig}")
+        return fig
+
+    # ------------ Positional functions ------------
+
+    def get_current_position(self):
+        """Get the current position of this motor."""
+        self.controller.get_encoder_position(self)
+        return self.current_position
+
+    def set_target_position(self, pos):
+        """Set the target position of the motor."""
+        self.target_position = pos
+
+        if self.target_position != self.current_position:
+            params = self.convert_distance(self.target_position)
+            self.controller.move(params, self)
+
+    def home(self, value):
+        """Home the motor."""
+        self.controller.move_home(self)
 
 class STAGETYPES():
 
