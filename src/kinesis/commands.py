@@ -8,9 +8,8 @@ import logging
 class Command:
     name: str  # Identifier
     msg_id: int  # First two bytes, e.g.: 0x0223 (identify, p46)
-    # msg_id: Tuple[int, int]  # First 2 bytes
-    param1: Optional[int]=None  # byte 2
-    param2: Optional[int]=None  # byte 3
+    param1: Optional[int]=0x00  # byte 2
+    param2: Optional[int]=0x00  # byte 3
 
     response_name: Optional[str] = None
     response_length: Optional[int] = None
@@ -19,17 +18,18 @@ class Command:
 
     compatible_devices: Optional[List[str]] = None
 
+    # Headers all have same shape
+    header_packing = struct.Struct('<HBBBB')
+    move_packing = struct.Struct('<H4B')
+    vel_packing = struct.Struct('<H12B')
+
     def build_command(self, 
             chan_ident: Optional[int]=0x01,
-            param1: Optional[int]=None,
-            param2: Optional[int]=None,
             data: Optional[Tuple[int,...]]=None,
             destination: int=0x50,
             source: int=0x01) -> bytes:
         """Build a command based on known parameters and optional arguments.
         :param int chan_ident: channel identity of destination
-        :param int param1: overrides default param1 (byte 2)
-        :param int param2: overrides dfault param2 (byte 3)
         :param ints data: optional post-header data
         :param destination: byte 4, destination of data (usually 0x50, generic USB unit)
         :param source: byte 5, source of data (always 0x01, host)
@@ -39,7 +39,16 @@ class Command:
 
         # If data is provided, assume param1 and param2 are known: length of post-header data
         if data:
-            payload = struct.pack(f'<H{len(data)}B', chan_ident, *data)
+            # Can we use existing data packer
+            if self.param1 == 0x06:  # 4 bytes
+                packer = self.move_packing
+            elif self.param1 == 0x0E:  # 12 bytes
+                packer = self.vel_packing
+            else:
+                packer = struct.Struct(f'<H{len(data)}B')
+            payload = packer.pack(chan_ident, *data)
+
+            # payload = struct.pack(f'<H{len(data)}B', chan_ident, *data)
             # See page 35 of docs - MSB is set via OR if there is a post-header packet
             destination |= 0x80
             # Assume they're known
@@ -47,7 +56,7 @@ class Command:
             param2 = self.param2
         # If data is not provided and there is a channel identity, set params 1 and 2 to that
         elif chan_ident is not None:
-            param1, param2 = chan_ident, self.param2 if self.param2 is not None else 0x00
+            param1, param2 = chan_ident, self.param2
         # If there's somehow no data and no chan_ident, use the defaults
         else:
             param1, param2 = self.param1, self.param2
@@ -190,7 +199,6 @@ class CMD:
                         response_name='move_completed',
                         response_code=0x0464,
                         response_length=14)
-
 
     @classmethod
     def get_command(cls, name: str) -> Optional[Command]:
