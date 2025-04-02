@@ -20,8 +20,8 @@ class Command:
 
     # Headers all have same shape
     header_packing = struct.Struct('<HBBBB')
-    move_packing = struct.Struct('<H4B')
-    vel_packing = struct.Struct('<H12B')
+    # For later use
+    packer = None
 
     def build_command(self, 
             chan_ident: Optional[int]=0x01,
@@ -39,21 +39,13 @@ class Command:
 
         # If data is provided, assume param1 and param2 are known: length of post-header data
         if data:
-            # Can we use existing data packer
-            if self.param1 == 0x06:  # 4 bytes
-                packer = self.move_packing
-            elif self.param1 == 0x0E:  # 12 bytes
-                packer = self.vel_packing
-            else:
-                packer = struct.Struct(f'<H{len(data)}B')
+            # Make packer for this object or get the existing one
+            packer = self.get_packer(len(data))
             payload = packer.pack(chan_ident, *data)
-
-            # payload = struct.pack(f'<H{len(data)}B', chan_ident, *data)
             # See page 35 of docs - MSB is set via OR if there is a post-header packet
             destination |= 0x80
             # Assume they're known
-            param1 = self.param1
-            param2 = self.param2
+            param1, param2 = self.param1, self.param2
         # If data is not provided and there is a channel identity, set params 1 and 2 to that
         elif chan_ident is not None:
             param1, param2 = chan_ident, self.param2
@@ -61,11 +53,26 @@ class Command:
         else:
             param1, param2 = self.param1, self.param2
 
-        header = struct.pack('<HBBBB',
-                             self.msg_id,
-                             param1, param2,
-                             destination, source)
+        header = self.header_packing.pack(
+                            self.msg_id,
+                            param1, param2,
+                            destination, source
+        )
         return header+payload
+
+    def get_packer(self, data_length: int) -> struct.Struct:
+        """Return a packer object based on the"""
+        if self.packer:
+            return self.packer
+        # Size is based on header info, if there is any
+        if self.param1 and self.param1 > 2:
+            # -2, as H covers first two bytes: channel identity
+            self.packer = struct.Struct(f'<H{self.param1 -2}B')
+        # There shouldn't be non-header data without param1, but if there is, pack it correctly
+        else:
+            self.packer = struct.Struct(f'<H{data_length}B')
+
+        return self.packer
 
 
 class CMD:

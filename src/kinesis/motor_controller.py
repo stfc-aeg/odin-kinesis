@@ -111,8 +111,6 @@ class MotorController():
             destination=motor.destination
         )
 
-        logging.debug(f"data: {data}")
-
         self.ser.write(data)
 
     def recv_reply(self):
