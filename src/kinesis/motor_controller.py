@@ -16,6 +16,8 @@ from kinesis.commands import CMD
 class MotorController():
     """Class to represent an arbitrary motor controller."""
 
+    DEBUG = False
+
     def __init__(self, port: str, device_type: str, bay_system: bool, stages: dict):
         """Initialise the motor controller.
         :param str port: serial port to use
@@ -28,8 +30,13 @@ class MotorController():
         # self.cmd = CMD_RSP("test/config/commands.json")
         self.cmd = CMD()
 
+        self.hardware_info = {}  # For storing info about device
+
         # Create serial connection
         self.open_serial(port)
+        self._in_buffer = bytearray()  # For potential leftover data between reads
+
+        time.sleep(1)
 
         self.stages = {}
         self.tree = {}
@@ -47,6 +54,17 @@ class MotorController():
             'motors': self.tree
         }
 
+    def initialize(self):
+        """Post-init function to populate further motor parameters."""
+        for motor in self.motors.values():
+            motor.initialize()
+
+        for name, stage in self.stages.items():
+            self.tree[name] = self.stages[name].tree
+
+        self.tree = {
+            'motors': self.tree
+        }
 
     # ------------ Serial functions ------------
 
@@ -116,66 +134,132 @@ class MotorController():
     def recv_reply(self):
         """Receive and parse a reply."""
         if not self.port_is_open():
-            return
+            return []
 
         time.sleep(0.04)  # necessary delay
 
-        reply = bytearray()
+        # Get every byte - this could be multiple messages
         while self.ser.in_waiting > 0:
-            # Read every byte
-            reply.extend(self.ser.read())
+            self._in_buffer.extend(self.ser.read())
 
-        return reply
+        # Process raw into replies
+        replies = []
+        i = 0
+        while i < (len(self._in_buffer)-1):  # mID needs 2 bytes
+            mID = self._in_buffer[i:i+2]
+            rsp, length = self.cmd.get_response_info(mID)
+            if rsp == "Unknown":  # If this is not a response ID, move on
+                i += 1
+                continue
+            msg_length = 6 + length  # Header is 6 bytes
+            if i + msg_length > len(self._in_buffer):
+                # Not enough data yet, break
+                break
+        
+            msg = self._in_buffer[i:i+msg_length]
+            replies.append(msg)
+            i += msg_length
 
-    def decode_reply(self, reply: bytearray):
-        """Convert reply to readable information.
-        :return tuple: response name, channel identity, response body
+        # Any unprocessed bytes 
+        self._in_buffer = self._in_buffer[i:]
+
+        return replies
+
+    def _get_motor_from_channel(self, cID: int, source: int):
+        """Return a motor object based on the channel identity and source values passed."""
+        # Generally, if cID isn't 1, the 'source' of the response (or 'destination' of the motor)
+        # will be 0x50 (generic USB device). If cID is 1, source may be 0x50, but in a 'card/bay'
+        # system, this will be 0x21->0x2A for bay 0->9. Checking both should cover most all cases
+        # See pages 35 and 36 of the APT protocol for more information.
+        for name, motor in self.stages.items():
+            if cID == motor.channel_identity and source == motor.destination:
+                return motor
+        return None
+
+    def _decode_reply(self, reply: bytearray):
+        """Convert reply to usable information.
+        :param bytearray reply: the bytes to be decoded
         """
         if not reply:
-            return '','', ''  # response, params
+            return '','',  # motor, response name
+        motor: Motor = None
 
-
-        mID = reply[:2]
+        mID = reply[:2]  # Message ID
         rsp, length = self.cmd.get_response_info(mID)
 
-        # If there is non-header info in reply, channel_identity is first, and define params
-        if length > 0:
-            cID = int.from_bytes(reply[6:8], byteorder='little')
-            rsp_params = reply[8:]
-        # If reply is header-only, cID is third byte
+        # Channel identity is (usually) third byte if header-only, or first two bytes of non-header data
+        if length == 0:
+            cID = reply[2]
         else:
-            cID = reply[2]  # cID goes here if there's no non-header data
-            rsp_params = b''
+            cID = int.from_bytes(reply[6:8], byteorder='little')
+        # cID = reply[2] if length==0 else reply[6:8]
+        # cID = int.from_bytes(cID, byteorder='little')
+        source = reply[5]  # Source is the final header byte
 
-        return rsp, cID, rsp_params
+        # Process the reply in its own statement
+        # motor is identified there in case cID is handled uniquely
+        match rsp, length:
+            case ("Unknown", 0):
+                return "Unknown", None
+            case ("move_homed", 0):
+                motor = self._get_motor_from_channel(cID, source)
+            case ("move_completed", 14):
+                motor = self._get_motor_from_channel(cID, source)
+            case ("get_enccounter", 6):
+                motor = self._get_motor_from_channel(cID, source)
+                params = reply[8:]
+                position = motor.convert_enccnt(params)
+                motor.current_position = position
+            case ("get_info", 84):
+                hwinfo = reply[6:]
+                # As according to page 52 of manual
+                self.hardware_info = {
+                    "serial_number": int.from_bytes(hwinfo[0:4], byteorder='little'),
+                    "model_number":  hwinfo[4:12].decode('ascii').strip(),
+                    "hardware_type": int.from_bytes(hwinfo[12:14], byteorder='little'),
+                    "firmware_version": {
+                        "major":   hwinfo[16],
+                        "interim": hwinfo[15],
+                        "minor":   hwinfo[14],
+                    },
+                    "hardware_version":   int.from_bytes(hwinfo[78:80], byteorder='little'),
+                    "modification_state": int.from_bytes(hwinfo[80:82], byteorder='little'),
+                    "number_of_channels": int.from_bytes(hwinfo[82:84], byteorder='little')
+                }
+
+        # Called by _check_reply_queues, return the motor and what the expected response is
+        # If the response needs handling, this has been done already
+        # If the response is in the queue, that gets sorted now
+        return motor, rsp
 
     def _check_reply_queues(self):
         """Check the queue for any replies, and see if that response is expected by any given motor.
         If it is, send the next command in that motor's queue.
         """
-        reply = self.recv_reply()
-        rsp, cID, params = self.decode_reply(reply)
+        replies = self.recv_reply()
+        # logging.debug(f"replies received: {replies}")
+        for reply in replies:
+            # rsp, cID, params = self.decode_reply(reply)
+            motor, response = self._decode_reply(reply)
 
-        for name, motor in self.stages.items():
-            if cID == motor.channel_identity:
-                logging.debug(f"cid: {cID}, motor cID: {motor.channel_identity}")
-                logging.debug(f"motor exp_rsp: {motor.expected_response}")
-                if rsp == motor.expected_response:
-                    logging.debug(f"Response for motor {motor.name}, moving through queue.")
+            if not motor:
+                continue  # Bad data
+            if response == motor.expected_response:
+                logging.debug(f"Response for motor {motor.name}, moving through queue.")
 
-                    motor.current_command = None
-                    if not motor.command_queue:
-                        logging.debug(f"motor {motor.name} queue empty.")
-                    else:
-                        cmd = motor.command_queue.pop()
-                        logging.debug(f"New command {cmd} for motor {motor.name}")
-                        # Commands saved to queue are a command and parameters
-                        self.send_cmd(
-                            command=cmd[0],
-                            command_params=cmd[1],
-                            motor=motor,
-                            await_response=True
-                        )
+                motor.current_command = None
+                if not motor.command_queue:
+                    logging.debug(f"Motor {motor.name} queue cleared.")
+                else:
+                    cmd = motor.command_queue.pop()
+                    logging.debug(f"Command {cmd} retrived from motor {motor.name} queue.")
+                    # Commands are saved in queue as (command, parameters)
+                    self.send_cmd(
+                        command=cmd[0],
+                        command_params=cmd[1],
+                        motor=motor,
+                        await_response=True
+                    )
 
     # ------------ Controller functions ------------
 
@@ -185,58 +269,11 @@ class MotorController():
             return
         self.send_cmd('identify')
 
-    # def get_hardware_info(self):
-    #     """Get the controller's serial number."""
-    #     if not self.port_is_open():
-    #         return
-    #     self.send_cmd('req_info')
-
-    #     reply = self.recv_reply()
-    #     msg, hwinfo = self.decode_reply(reply)
-
-    #     # As according to page 52 of manual
-    #     hardware_info = {
-    #         "serial_number": int.from_bytes(hwinfo[0:4], byteorder='little'),
-    #         "model_number":  hwinfo[4:12].decode('ascii').strip(),
-    #         "hardware_type": int.from_bytes(hwinfo[12:14], byteorder='little'),
-    #         "firmware_version": {
-    #             "major":   hwinfo[16],
-    #             "interim": hwinfo[15],
-    #             "minor":   hwinfo[14],
-    #         },
-    #         "hardware_version":   int.from_bytes(hwinfo[78:80], byteorder='little'),
-    #         "modification_state": int.from_bytes(hwinfo[80:82], byteorder='little'),
-    #         "number_of_channels": int.from_bytes(hwinfo[82:84], byteorder='little')
-    #     }
-
-    #     return hardware_info
-
-    # def get_mmi_params(self):
-    #     """Get controller-cube top panel/wheel settings.
-    #     For specific parameter information, see pages 137-138 of the protocol.
-    #     :returns dict: mmi parameters
-    #     """
-    #     if not self.port_is_open():
-    #         return
-    #     self.send_cmd('req_mmiparams')
-    #     reply = self.recv_reply()
-    #     msg, mmiinfo = self.decode_reply(reply)
-
-    #     mmi_params = {
-    #         'channel_identity': mmiinfo[0:2],
-    #         'joystick_mode': mmiinfo[2:4],
-    #         'joystick_max_velocity': mmiinfo[4:8],
-    #         'joystick_acceleration': mmiinfo[8:12],
-    #         'direction_sense': mmiinfo[12:14],
-    #         'preset_position_1': mmiinfo[14:18],
-    #         'preset_position_2': mmiinfo[18:22],
-    #         'display_brightness': mmiinfo[22:24],
-    #         'display_timeout': mmiinfo[24:26],
-    #         'display_dim_level': mmiinfo[26:28]
-    #     }
-    #     # preset_position_3 (28:32) and w_joystick_sensitivity (32:34) are for BBD30x only
-
-    #     return mmi_params
+    def get_hardware_info(self, value):
+        """Get hardware info for the controller."""
+        if not self.port_is_open():
+            return
+        self.send_cmd('req_info')
 
     # ------------ Movement functions ------------
     # These functions await a reply that the motor has reached its position.
@@ -271,7 +308,7 @@ class MotorController():
             await_response=True
         )
 
-    # # ------------ Positional functions ------------
+    # ------------ Positional functions ------------
 
     def get_encoder_position(self, motor: Motor):
         """Get motor position (enccnt). This is then converted to a readable value.
@@ -279,21 +316,9 @@ class MotorController():
         """
         if not self.port_is_open():
             return
+
         self.send_cmd(
             command='req_enccounter',
-            motor=Motor,
+            motor=motor,
             await_response=False
         )
-
-        reply = self.recv_reply()
-        try:
-            if self.DEBUG:
-                logging.debug(f"Encoder position reply: {reply}")
-            rsp, cID, params = self.decode_reply(reply)
-            # Pages 64-65, GET structure
-            pos = params[2:]
-            motor.current_position = motor.convert_enccnt(pos)
-        except ValueError:
-            position=None
-        motor.current_position = position
-

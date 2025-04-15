@@ -41,6 +41,7 @@ class Motor():
             'position': {
                 'home': (lambda: None, self.home),
                 'set_target_pos': (lambda: self.target_position, self.set_target_position),
+                'current_pos': (lambda: self.get_current_position(), None)
             },
             'command': {
                 'current_command': (lambda: self.current_command, None),
@@ -48,6 +49,11 @@ class Motor():
                 'command_queue': (lambda: self.command_queue, None)
             }
         }
+
+    def initialize(self):
+        """Post-init adapter function to populate further parameters."""
+        logging.debug("Adding current pos to tree for motors")
+        self.tree['position']['current_position'] = (lambda: self.get_current_position(), None)
 
     # ------------ Conversion functions ------------
 

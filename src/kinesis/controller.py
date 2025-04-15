@@ -90,29 +90,6 @@ class KinesisController():
                 # Do a queue check for the controller
                 controller._check_reply_queues()
             
-            if self.current_command:
-                # Behaviour is otherwise standard receive-reply affair
-                reply = self.recv_reply()
-                rsp, params = self.decode_reply(reply)
-                logging.debug(f"cur_command: {self.current_command}. rsp: {rsp}. exp_rsp:{self.expected_response}")
-                if rsp == self.expected_response:
-                    logging.debug(f"Expected response achieved, moving through queue.")
-                    self.current_command = None
-
-                    # Is the queue empty?
-                    if not self.command_queue:
-                        logging.debug("Queue cleared.")
-                    # If it's not empty, do something
-                    else:
-                        cmd = self.command_queue.pop()
-                        logging.debug(f"New command from queue: {cmd}")
-                        # Commands saved to queue are a command and parameters
-                        self.send_cmd(
-                            command=cmd[0],
-                            command_params=cmd[1],
-                            await_response=True
-                        )
-
             # Check every 0.2s
             time.sleep(self.bg_await_reply_interval)
 
@@ -134,7 +111,8 @@ class KinesisController():
     # ------------ Adapter functions ------------
 
     def initialize(self, adapters):
-        logging.debug("DummyAdapter initialized with %d adapters", len(adapters))
+        """Post-init function."""
+        logging.debug("Initialize function called.")
 
     def get(self, path, with_metadata=False):
         """Get parameter data from controller.
