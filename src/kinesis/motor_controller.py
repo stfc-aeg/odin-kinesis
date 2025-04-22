@@ -92,7 +92,7 @@ class MotorController():
         self.ser.close()
         logging.debug("Serial connection closed.")
 
-    def send_cmd(self, command: str, command_params: bytearray=None, motor:Motor=None, await_response: bool=False):
+    def send_cmd(self, command: str, command_params: bytearray=None, motor:Motor=None):
         """Send a command through the serial port.
         :param str command: name of the command to send
         :param bytearray command_params: additional parameter bytes required by command
@@ -102,18 +102,21 @@ class MotorController():
         if not self.port_is_open() or not motor:
             return
 
-        if await_response:
-            if motor.current_command:
-                logging.debug(f"Adding {command} to {motor.name} queue.")
-                # Add command and any parameters to the queue
-                motor.command_queue.append(
-                    (command, command_params)
-                )
-                return
-            motor.current_command = command
+        # if await_response:
+        #     if motor.current_command:
+        #         logging.debug(f"Adding {command} to {motor.name} queue.")
+        #         motor.await_queue.put(
+        #             (command, command_params)
+        #         )
+        #         # # Add command and any parameters to the queue
+        #         # motor.command_queue.append(
+        #         #     (command, command_params)
+        #         # )
+        #         return
+        #     motor.current_command = command
 
-            # Expected response info - only need name, not length from tuple
-            motor.expected_response = self.cmd.get_expected_response(command)[0]
+        #     # Expected response info - only need name, not length from tuple
+        #     motor.expected_response = self.cmd.get_expected_response(command)[0]
 
         # Command header structure:
         # bytes | detail
@@ -131,7 +134,7 @@ class MotorController():
 
         self.ser.write(data)
 
-    def recv_reply(self):
+    def _recv_reply(self):
         """Receive and parse a reply."""
         if not self.port_is_open():
             return []
@@ -203,8 +206,10 @@ class MotorController():
                 return "Unknown", None
             case ("move_homed", 0):
                 motor = self._get_motor_from_channel(cID, source)
+                motor.homing = False
             case ("move_completed", 14):
                 motor = self._get_motor_from_channel(cID, source)
+                motor.moving = False
             case ("get_enccounter", 6):
                 motor = self._get_motor_from_channel(cID, source)
                 params = reply[8:]
@@ -233,33 +238,65 @@ class MotorController():
         return motor, rsp
 
     def _check_reply_queues(self):
-        """Check the queue for any replies, and see if that response is expected by any given motor.
-        If it is, send the next command in that motor's queue.
+        """Check the instant queue to send any commands from it.
+        Then check for replies, seeing if a response is expected by any motor.
+        If it is, send the next command from that motor's await_queue.
         """
-        replies = self.recv_reply()
+        # Send one instant command from the queue, if there is one
+        for name, motor in self.stages.items():
+            if not motor.instant_queue.empty():
+                priority, cmd = motor.instant_queue.get()
+                self.send_cmd(
+                    command=cmd[0],
+                    command_params=cmd[1],
+                    motor=motor
+                )
+            # With no active command and one in queue, send one
+            if (motor.current_command is None) and (not motor.await_queue.empty()):
+                cmd = motor.await_queue.get()
+                self.send_cmd(
+                    command=cmd[0],
+                    command_params=cmd[1],
+                    motor=motor
+                )
+                motor.current_command = cmd[0]
+
+                # Expected response info - only need name, not length from tuple
+                motor.expected_response = self.cmd.get_expected_response(cmd[0])[0]
+
+        # Then process replies
+        replies = self._recv_reply()
         # logging.debug(f"replies received: {replies}")
+
         for reply in replies:
             # rsp, cID, params = self.decode_reply(reply)
             motor, response = self._decode_reply(reply)
 
+            # Bad data
             if not motor:
-                continue  # Bad data
+                continue
+
+            # If this is an expected response, clear/move through await_queue
             if response == motor.expected_response:
                 logging.debug(f"Response for motor {motor.name}, moving through queue.")
 
                 motor.current_command = None
-                if not motor.command_queue:
+                motor.expected_response = None
+
+                if motor.await_queue.empty():
                     logging.debug(f"Motor {motor.name} queue cleared.")
                 else:
-                    cmd = motor.command_queue.pop()
+                    cmd = motor.await_queue.get()
+                    # cmd = motor.command_queue.pop()
                     logging.debug(f"Command {cmd} retrived from motor {motor.name} queue.")
                     # Commands are saved in queue as (command, parameters)
                     self.send_cmd(
                         command=cmd[0],
                         command_params=cmd[1],
-                        motor=motor,
-                        await_response=True
+                        motor=motor
                     )
+                    motor.current_command = cmd[0]
+                    motor.expected_response = self.cmd.get_expected_response(cmd[0])[0]
 
     # ------------ Controller functions ------------
 
@@ -278,35 +315,43 @@ class MotorController():
     # ------------ Movement functions ------------
     # These functions await a reply that the motor has reached its position.
 
-    def move(self, params, motor: Motor):
-        self.send_cmd(
-            'move_absolute_arg',
-            command_params=params,
-            motor=motor,
-            await_response=True
+    def move(self, params: bytearray, motor: Motor):
+        """Move to a given absolute position.
+        :param bytearray params: command parameters, 4 bytes for target pos in encoder counts
+        """
+        if not self.port_is_open():
+            return
+        motor.await_queue.put(
+            ('move_absolute_arg', params)
         )
 
     def move_home(self, motor: Motor):
         """Home the device."""
         if not self.port_is_open():
             return
-        # No parameters but requires waiting
-        self.send_cmd(
-            command='move_home',
-            motor=motor,
-            await_response=True
+        motor.await_queue.put(
+            ('move_home', None)
         )
+
+    def move_jog(self, direction: bool, motor: Motor):
+        """Start a jog movement.
+        :param bool direction: given from motor, True is forward
+        """
+        pass
 
     def move_stop(self, motor: Motor):
         """Stop the current move."""
         if not self.port_is_open():
             return
-        # No parameters but requires waiting (stops are not instant)
-        self.send_cmd(
-            commmand='move_stop',
-            motor=motor,
-            await_response=True
+        
+        # This is an await command, but we want stop to occur immediately - priority 0
+        motor.instant_queue.put(
+            (0, ('move_stop', None))
         )
+
+        # Remove all other await tasks from the queue to avoid continued movement
+        while not motor.await_queue.empty():
+            var = motor.await_queue.get()
 
     # ------------ Positional functions ------------
 
@@ -317,8 +362,6 @@ class MotorController():
         if not self.port_is_open():
             return
 
-        self.send_cmd(
-            command='req_enccounter',
-            motor=motor,
-            await_response=False
+        motor.instant_queue.put(
+            (1, ('req_enccounter', None))
         )

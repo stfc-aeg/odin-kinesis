@@ -3,6 +3,7 @@ It tracks the encoder/scale-factor values for the stage type, the command queue 
 and handles conversions for that motor.
 """
 import logging
+from queue import Queue, PriorityQueue
 
 class Motor():
     """Class to represent the state of a motor stage."""
@@ -21,10 +22,14 @@ class Motor():
         self.current_command = None
         self.expected_response = None
 
+        self.await_queue = Queue(maxsize=0)
+        self.instant_queue = PriorityQueue(maxsize=0)
+
         self.controller = controller
         self.destination = destination
 
         self.moving = False
+        self.homing = False
         self.current_position = 0
         self.target_position = None
 
@@ -103,6 +108,7 @@ class Motor():
 
     def home(self, value):
         """Home the motor."""
+        self.homing = True
         self.controller.move_home(self)
 
 class STAGETYPES():
