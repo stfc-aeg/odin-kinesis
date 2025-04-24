@@ -88,22 +88,37 @@ class Motor():
         return mv_enccnt.to_bytes(4, byteorder='little', signed=True)
 
     def convert_enccnt(self, enccnt_bytes):
-        """Convert an encoder count back to a readable figure (depends on stage: mm, deg, etc.).
-        :param enccnt: reported encoder count
+        """Convert position bytes back to a readable figure (depends on stage: mm, deg, etc.).
         :return float: rounded converted encoder value
         """
         enccnt = int.from_bytes(enccnt_bytes, byteorder='little', signed=True)
         return round((enccnt/self.enc_cnt), 4)
-    
+
     def convert_velocity(self, vel):
-        """Convert velocity to the controller format (4 bytes)."""
+        """Convert velocity to the controller format (4 bytes).
+        :return bytes: scaled velocity in bytes
+        """
         vel_apt = int(vel * self.sf_vel)
         return vel_apt.to_bytes(4, byteorder='little', signed=True)
 
+    def read_velocity(self, vel_bytes):
+        """Convert 4-byte controller velocity back to readable value.
+        :return velocity: rounded to 4 figures
+        """
+        vel_apt = int.from_bytes(vel_bytes, byteorder='little', signed=True)
+        return round((vel_apt/self.sf_vel), 4)
+
     def convert_accel(self, accel):
-        """Convert acceleration to controller format (4 bytes)."""
+        """Convert acceleration to controller format (4 bytes).
+        :return bytes: scaled acceleration in bytes
+        """
         acc_apt = int(accel * self.sf_acc)
         return acc_apt.to_bytes(4, byteorder='little', signed=True)
+
+    def read_accel(self, acc_bytes):
+        """Convert 4-byte controller acceleration value back to mm/s^2."""
+        acc_apt = int.from_bytes(acc_bytes, byteorder='little', signed=True)
+        return round((acc_apt/self.sf_acc), 4)
 
     # ------------ Positional functions ------------
 
