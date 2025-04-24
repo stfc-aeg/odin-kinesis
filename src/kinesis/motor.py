@@ -80,33 +80,20 @@ class Motor():
     # ------------ Conversion functions ------------
 
     def convert_distance(self, movement):
-        """Convert a movement to an encoder increment in the required binary format.
-        The movement may be linear or rotational, depending on the device.
-        :param movement: movement change - e.g.: 5mm, 20 degrees
+        """Convert a movement to an encoder count in the controller format (4 bytes).
+        :param movement: movement change - e.g. 5mm, 20 degrees
         :return bytes: movement translated to encoder units
         """
-        # Movement to encoder counts
         mv_enccnt = int(movement * self.enc_cnt)
-        # To bytes
-        mv_enccnt_bytes = mv_enccnt.to_bytes(4, byteorder='little',signed=True)
+        return mv_enccnt.to_bytes(4, byteorder='little', signed=True)
 
-        if self.DEBUG:
-            logging.debug(f"enccnt: {mv_enccnt}, mv_enccnt_bytes, {mv_enccnt_bytes.hex()}")
-        return mv_enccnt_bytes
-
-    def convert_enccnt(self, enccnt):
-        """Convert an encoder count back to a readable figure.
-        The unit depends on the stage: mm, degrees, etc.
+    def convert_enccnt(self, enccnt_bytes):
+        """Convert an encoder count back to a readable figure (depends on stage: mm, deg, etc.).
         :param enccnt: reported encoder count
-        :return int: rounded converted encoder value
+        :return float: rounded converted encoder value
         """
-        # Integer from bytes
-        enccnt_int = int.from_bytes(enccnt, byteorder='little',signed=True)
-        # Convert to unit from encoder count
-        fig = round(enccnt_int/self.enc_cnt, 1)
-        if self.DEBUG:
-            logging.debug(f"enccnt: {enccnt}, result figure: {fig}")
-        return fig
+        enccnt = int.from_bytes(enccnt_bytes, byteorder='little', signed=True)
+        return round((enccnt/self.enc_cnt), 4)
     
     def convert_velocity(self, vel):
         """Convert velocity to the controller format (4 bytes)."""
