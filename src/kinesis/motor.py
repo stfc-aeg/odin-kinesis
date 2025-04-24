@@ -42,6 +42,14 @@ class Motor():
         self.sf_vel  = int(self.stage_type['sf_vel'])
         self.sf_acc  = int(self.stage_type['sf_acc'])
 
+        # Details on page 68
+        self.jog_mode = 0x02  # Step. 0x01 is continuous
+        self.jog_step_size = 1  # mm
+        self.jog_min_vel = 0  # mm/s
+        self.jog_accel = 0.5  # mm/s^2
+        self.jog_max_vel = 1  # mm/s 
+        self.jog_stop_mode = 0x02  # Profiled, 0x01 is abrupt
+
         self.tree = {
             'position': {
                 'home': (lambda: None, self.home),
@@ -52,6 +60,15 @@ class Motor():
                 'current_command': (lambda: self.current_command, None),
                 'expected_response': (lambda: self.expected_response, None),
                 'command_queue': (lambda: self.command_queue, None)
+            },
+            'jog': {
+                'mode': (lambda: self.jog_mode, self.set_jog_mode),
+                'step_size': (lambda: self.jog_step_size, self.set_jog_step_size),
+                'min_vel': (lambda: self.jog_min_vel, self.set_jog_min_vel),
+                'accel': (lambda: self.jog_accel, self.set_jog_accel),
+                'max_vel': (lambda: self.jog_max_vel, self.set_jog_max_vel),
+                'stop_mode': (lambda: self.jog_stop_mode, self.set_jog_stop_mode),
+                'step': (lambda: None, self.jog)
             }
         }
 
@@ -90,6 +107,16 @@ class Motor():
         if self.DEBUG:
             logging.debug(f"enccnt: {enccnt}, result figure: {fig}")
         return fig
+    
+    def convert_velocity(self, vel):
+        """Convert velocity to the controller format (4 bytes)."""
+        vel_apt = int(vel * self.sf_vel)
+        return vel_apt.to_bytes(4, byteorder='little', signed=True)
+
+    def convert_accel(self, accel):
+        """Convert acceleration to controller format (4 bytes)."""
+        acc_apt = int(accel * self.sf_acc)
+        return acc_apt.to_bytes(4, byteorder='little', signed=True)
 
     # ------------ Positional functions ------------
 
@@ -110,6 +137,53 @@ class Motor():
         """Home the motor."""
         self.homing = True
         self.controller.move_home(self)
+
+    # ------------ Jog functions ------------
+
+    def jog(self, direction):
+        """Start jogging in a given direction
+        :param bool direction: True (forward), False (back).
+        """
+        direction = bool(direction)
+        self.controller.move_jog(direction, self)
+
+    def set_jog_mode(self, value):
+        """Set the jog mode then update the params through the controller.
+        :param int value: 0x01 (continuous), 0x02 (step)
+        """
+        if value not in (0x01, 0x02):
+            value = 0x02  # Step if not in range
+        self.jog_mode = value
+        self.controller.set_jogparams(self)
+
+    def set_jog_step_size(self, value):
+        """Set jog step size then update params through controller."""
+        self.jog_step_size = value
+        self.controller.set_jogparams(self)
+
+    def set_jog_min_vel(self, value):
+        """Set jog minimum velocity then update params through controller."""
+        self.jog_min_vel = value
+        self.controller.set_jogparams(self)
+
+    def set_jog_accel(self, value):
+        """Set jog acceleration then update params through controller."""
+        self.jog_accel = value
+        self.controller.set_jogparams(self)
+
+    def set_jog_max_vel(self, value):
+        """Set jog maximum velocity then update params through controller."""
+        self.jog_max_vel = value
+        self.controller.set_jogparams(self)
+
+    def set_jog_stop_mode(self, value):
+        """Set jog stop mode then update params through controller.
+        :param int value: 0x01 (instant stop) or 0x02 (profiled stop)
+        """
+        if value not in (0x01, 0x02):
+            value = 0x02  # Profiled stop if not in range
+        self.jog_stop_mode = value
+        self.controller.set_jogparams(self)
 
 class STAGETYPES():
 

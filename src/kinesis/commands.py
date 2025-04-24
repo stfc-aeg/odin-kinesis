@@ -185,7 +185,7 @@ class CMD:
                             param1=0x16, param2=0x00)
     # Page 68: Get jog parameters
     req_jogparams = Command('req_jogparams', 0x0417,
-                            response_name='get_jogpaarams',
+                            response_name='get_jogparams',
                             response_code=0x0418,
                             response_length=22)
     # Page 86: Jog forward
