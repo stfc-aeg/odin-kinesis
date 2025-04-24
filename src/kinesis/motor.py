@@ -79,7 +79,7 @@ class Motor():
 
     # ------------ Conversion functions ------------
 
-    def convert_distance(self, movement):
+    def convert_position(self, movement):
         """Convert a movement to an encoder count in the controller format (4 bytes).
         :param movement: movement change - e.g. 5mm, 20 degrees
         :return bytes: movement translated to encoder units
@@ -87,7 +87,7 @@ class Motor():
         mv_enccnt = int(movement * self.enc_cnt)
         return mv_enccnt.to_bytes(4, byteorder='little', signed=True)
 
-    def convert_enccnt(self, enccnt_bytes):
+    def read_position(self, enccnt_bytes):
         """Convert position bytes back to a readable figure (depends on stage: mm, deg, etc.).
         :return float: rounded converted encoder value
         """
@@ -132,7 +132,7 @@ class Motor():
         self.target_position = pos
 
         if self.target_position != self.current_position:
-            params = self.convert_distance(self.target_position)
+            params = self.convert_position(self.target_position)
             self.controller.move(params, self)
 
     def home(self, value):

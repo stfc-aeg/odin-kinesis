@@ -198,7 +198,7 @@ class MotorController():
             case ("get_enccounter", 6):
                 motor = self._get_motor_from_channel(cID, source)
                 params = reply[8:]
-                position = motor.convert_enccnt(params)
+                position = motor.read_position(params)
                 motor.current_position = position
             case ("get_info", 84):
                 hwinfo = reply[6:]
@@ -220,10 +220,10 @@ class MotorController():
                 motor = self._get_motor_from_channel(cID, source)
                 jogparams = reply[8:]
                 motor.jog_mode = int.from_bytes(jogparams[1:3], byteorder='little')
-                motor.jog_step_size = motor.convert_enccnt(jogparams[3:7])
-                motor.jog_min_vel = motor.convert_enccnt(jogparams[7:11])
-                motor.jog_accel = motor.convert_enccnt(jogparams[11:15])
-                motor.jog_max_vel = motor.convert_enccnt(jogparams[15:19])
+                motor.jog_step_size = motor.read_position(jogparams[3:7])
+                motor.jog_min_vel = motor.read_velocity(jogparams[7:11])
+                motor.jog_accel = motor.read_accel(jogparams[11:15])
+                motor.jog_max_vel = motor.read_velocity(jogparams[15:19])
                 motor.jog_stop_mode = int.from_bytes(jogparams[19:21], byteorder='little')
 
         # Called by _check_reply_queues, return the motor and what the expected response is
@@ -334,7 +334,7 @@ class MotorController():
         """Set the jog parameters for a given stage."""
         jogparams = [
             motor.jog_mode.to_bytes(2, byteorder='little'),  # 2 bytes
-            motor.convert_distance(motor.jog_step_size),  # 4 bytes
+            motor.convert_position(motor.jog_step_size),  # 4 bytes
             motor.convert_velocity(motor.jog_min_vel),  # 4 bytes
             motor.convert_accel(motor.jog_accel),  # 4 bytes
             motor.convert_velocity(motor.jog_max_vel),  # 4 bytes
