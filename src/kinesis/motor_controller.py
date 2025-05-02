@@ -1,11 +1,5 @@
 """Class to manage the state of some number of motors and process serial commands on their behalf."""
 
-from odin.adapters.parameter_tree import ParameterTree, ParameterTreeError
-
-# Motor imports
-from concurrent import futures
-from tornado.concurrent import run_on_executor
-
 import serial
 import time
 import logging
@@ -56,7 +50,7 @@ class MotorController():
 
     def initialize(self):
         """Post-init function to populate further motor parameters."""
-        for motor in self.motors.values():
+        for motor in self.stages.values():
             motor.initialize()
 
         for name, stage in self.stages.items():
@@ -116,7 +110,6 @@ class MotorController():
             destination=motor.destination
         )
 
-        logging.debug(f"data: {data}")
         self.ser.write(data)
 
     def _recv_reply(self):
@@ -219,12 +212,12 @@ class MotorController():
             case ("get_jogparams", 22):
                 motor = self._get_motor_from_channel(cID, source)
                 jogparams = reply[8:]
-                motor.jog_mode = int.from_bytes(jogparams[1:3], byteorder='little')
-                motor.jog_step_size = motor.read_position(jogparams[3:7])
-                motor.jog_min_vel = motor.read_velocity(jogparams[7:11])
-                motor.jog_accel = motor.read_accel(jogparams[11:15])
-                motor.jog_max_vel = motor.read_velocity(jogparams[15:19])
-                motor.jog_stop_mode = int.from_bytes(jogparams[19:21], byteorder='little')
+                motor.jog_mode = int.from_bytes(jogparams[0:2], byteorder='little')
+                motor.jog_step_size = motor.read_position(jogparams[2:6])
+                motor.jog_min_vel = motor.read_velocity(jogparams[6:10])
+                motor.jog_accel = motor.read_accel(jogparams[10:14])
+                motor.jog_max_vel = motor.read_velocity(jogparams[14:18])
+                motor.jog_stop_mode = int.from_bytes(jogparams[18:20], byteorder='little')
 
         # Called by _check_reply_queues, return the motor and what the expected response is
         # If the response needs handling, this has been done already
@@ -260,13 +253,10 @@ class MotorController():
 
         # Then process replies
         replies = self._recv_reply()
-        # if replies:
-        #     logging.debug(f"replies received: {replies}")
 
         for reply in replies:
             # rsp, cID, params = self.decode_reply(reply)
             motor, response = self._decode_reply(reply)
-            logging.debug(f"response: {response}")
 
             # Bad data
             if not motor:
@@ -346,6 +336,10 @@ class MotorController():
             (1, ('set_jogparams', params))
         )
 
+    def get_jogparams(self, motor: Motor):
+        """Get the jog parameters for a given stage."""
+        motor.instant_queue.put((1, ('req_jogparams', None)))
+
     def move_jog(self, direction: bool, motor: Motor):
         """Start a jog movement.
         :param bool direction: given from motor, True is forward
@@ -372,7 +366,6 @@ class MotorController():
         motor.instant_queue.put(
             (0, ('move_stop', None))
         )
-
         # Remove all other await tasks from the queue to avoid continued movement
         while not motor.await_queue.empty():
             var = motor.await_queue.get()

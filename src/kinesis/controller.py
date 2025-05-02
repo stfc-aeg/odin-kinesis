@@ -35,9 +35,9 @@ class KinesisController():
     executor = futures.ThreadPoolExecutor(max_workers=1)
 
     def __init__(self, options):
-        """Initialize the KinesisAdapter object.
+        """Initialise the KinesisAdapter object.
 
-        This constructor Initializes the KinesisAdapter object, including launching a background
+        This constructor Initialises the KinesisAdapter object, including launching a background
         task if enabled by the adapter options passed as arguments.
 
         :param kwargs: keyword arguments specifying options
@@ -65,8 +65,6 @@ class KinesisController():
                 self.controllers[name] = MotorController(port, controller_type, bay_system, stages)
 
                 self.tree[name] = self.controllers[name].tree
-
-        self._start_background_task()
 
         self.param_tree = ParameterTree({
             'bg_task_interval': (lambda: self.bg_await_reply_interval, None),
@@ -112,7 +110,11 @@ class KinesisController():
 
     def initialize(self, adapters):
         """Post-init function."""
-        logging.debug("Initialize function called.")
+        for name, controller in self.controllers.items():
+            controller.initialize()
+
+        logging.debug("Starting background task.")
+        self._start_background_task()
 
     def get(self, path, with_metadata=False):
         """Get parameter data from controller.

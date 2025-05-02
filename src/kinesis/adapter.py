@@ -93,3 +93,4 @@ class KinesisAdapter(ApiAdapter):
     def initialize(self, adapters):
         """Get list of adapters and call relevant functions for them."""
         self.adapters = dict((k, v) for k, v in adapters.items() if v is not self)
+        self.kinesis.initialize(adapters)

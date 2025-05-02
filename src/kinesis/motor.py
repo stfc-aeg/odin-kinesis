@@ -38,6 +38,7 @@ class Motor():
         # Device parameters should be provided by motor controller
         self.stage_type = getattr(STAGETYPES, stage_type, STAGETYPES.MTS50_Z8)
 
+        # Defined as floats, rounded to ints, page 39
         self.enc_cnt = int(self.stage_type['enc_cnt'])
         self.sf_vel  = int(self.stage_type['sf_vel'])
         self.sf_acc  = int(self.stage_type['sf_acc'])
@@ -54,7 +55,8 @@ class Motor():
             'position': {
                 'home': (lambda: None, self.home),
                 'set_target_pos': (lambda: self.target_position, self.set_target_position),
-                'current_pos': (lambda: self.get_current_position(), None)
+                'current_pos': (lambda: self.get_current_position(), None),
+                'stop': (lambda: None, self.stop)
             },
             'command': {
                 'current_command': (lambda: self.current_command, None),
@@ -73,9 +75,9 @@ class Motor():
         }
 
     def initialize(self):
-        """Post-init adapter function to populate further parameters."""
+        """Post-init adapter function to get required parameters."""
         logging.debug("Adding current pos to tree for motors")
-        self.tree['position']['current_position'] = (lambda: self.get_current_position(), None)
+        self.controller.get_jogparams(self)
 
     # ------------ Conversion functions ------------
 
@@ -129,6 +131,7 @@ class Motor():
 
     def set_target_position(self, pos):
         """Set the target position of the motor."""
+        pos = int(pos)
         self.target_position = pos
 
         if self.target_position != self.current_position:
@@ -139,6 +142,12 @@ class Motor():
         """Home the motor."""
         self.homing = True
         self.controller.move_home(self)
+
+    def stop(self, value):
+        """Stop the motor."""
+        self.homing = False
+        self.moving = False
+        self.controller.move_stop(self)
 
     # ------------ Jog functions ------------
 
