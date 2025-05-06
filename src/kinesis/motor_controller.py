@@ -128,6 +128,7 @@ class MotorController():
         i = 0
         while i < (len(self._in_buffer)-1):  # mID needs 2 bytes
             mID = self._in_buffer[i:i+2]
+            mID = int.from_bytes(mID, 'little')
             rsp, length = self.cmd.get_response_info(mID)
             if rsp == "Unknown":  # If this is not a response ID, move on
                 i += 1
@@ -165,7 +166,7 @@ class MotorController():
             return '','',  # motor, response name
         motor: Motor = None
 
-        mID = reply[:2]  # Message ID
+        mID = int.from_bytes(reply[:2], 'little')  # Message ID
         rsp, length = self.cmd.get_response_info(mID)
 
         # Channel identity is (usually) third byte if header-only, or first two bytes of non-header data
