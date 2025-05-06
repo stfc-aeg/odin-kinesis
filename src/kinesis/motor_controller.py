@@ -5,7 +5,7 @@ import time
 import logging
 
 from kinesis.motor import Motor
-from kinesis.commands import CMD
+from kinesis.commands import CMD, DEVICE_COMMANDS
 
 class MotorController():
     """Class to represent an arbitrary motor controller."""
@@ -103,7 +103,8 @@ class MotorController():
         # 4     | destination: 0x50 but different for bay/card systems
         # 5     | source: 0x01 as host is always communicating
 
-        cmd = CMD.get_command(command)
+        # cmd = CMD.get_command(command)
+        cmd = DEVICE_COMMANDS[command][self.device_type]
         data = cmd.build_command(
             chan_ident=motor.channel_identity,
             data=command_params,
@@ -247,10 +248,9 @@ class MotorController():
                     command_params=cmd[1],
                     motor=motor
                 )
-                motor.current_command = cmd[0]
-
+                motor.current_command = DEVICE_COMMANDS[cmd[0]][self.device_type].name
                 # Expected response info - only need name, not length from tuple
-                motor.expected_response = self.cmd.get_expected_response(cmd[0])[0]
+                motor.expected_response, exp_rsp_length = CMD.get_expected_response(motor.current_command)
 
         # Then process replies
         replies = self._recv_reply()
@@ -274,7 +274,6 @@ class MotorController():
                     logging.debug(f"Motor {motor.name} queue cleared.")
                 else:
                     cmd = motor.await_queue.get()
-                    # cmd = motor.command_queue.pop()
                     logging.debug(f"Command {cmd} retrived from motor {motor.name} queue.")
                     # Commands are saved in queue as (command, parameters)
                     self.send_cmd(
@@ -282,8 +281,9 @@ class MotorController():
                         command_params=cmd[1],
                         motor=motor
                     )
-                    motor.current_command = cmd[0]
-                    motor.expected_response = self.cmd.get_expected_response(cmd[0])[0]
+                    motor.current_command = DEVICE_COMMANDS[cmd[0]][self.device_type].name
+                    # Expected response info - only need name, not length from tuple
+                    motor.expected_response, exp_rsp_length = CMD.get_expected_response(motor.current_command)
 
     # ------------ Controller functions ------------
 
@@ -308,17 +308,17 @@ class MotorController():
         """
         if not self.port_is_open():
             return
+        logging.debug("move added to queue")
         motor.await_queue.put(
-            ('move_absolute_arg', params)
+            ('move', params)
         )
-        logging.debug(f"added move abs to queue")
 
     def move_home(self, motor: Motor):
         """Home the device."""
         if not self.port_is_open():
             return
         motor.await_queue.put(
-            ('move_home', None)
+            ('home', None)
         )
 
     def set_jogparams(self, motor: Motor):
@@ -334,12 +334,12 @@ class MotorController():
         params = b''.join(jogparams)
 
         motor.instant_queue.put(
-            (1, ('set_jogparams', params))
+            (1, ('set_jog_params', params))
         )
 
     def get_jogparams(self, motor: Motor):
         """Get the jog parameters for a given stage."""
-        motor.instant_queue.put((1, ('req_jogparams', None)))
+        motor.instant_queue.put((1, ('get_jog_params', None)))
 
     def move_jog(self, direction: bool, motor: Motor):
         """Start a jog movement.
@@ -349,12 +349,12 @@ class MotorController():
             return
         if direction:
             motor.await_queue.put(
-                ('move_jog_forward', None)
+                ('jog_forward', None)
             )
             logging.debug(f"added forward jog to queue")
         else:
             motor.await_queue.put(
-                ('move_jog_backward', None)
+                ('jog_backward', None)
             )
             logging.debug(f"added backward jog to queue")
 
@@ -365,7 +365,7 @@ class MotorController():
         
         # This is an await command, but we want stop to occur immediately - priority 0
         motor.instant_queue.put(
-            (0, ('move_stop', None))
+            (0, ('stop', None))
         )
         # Remove all other await tasks from the queue to avoid continued movement
         while not motor.await_queue.empty():
@@ -379,7 +379,11 @@ class MotorController():
         """
         if not self.port_is_open():
             return
-
+        
         motor.instant_queue.put(
-            (1, ('req_enccounter', None))
+            (1, ('get_position', None))
         )
+
+        # motor.instant_queue.put(
+        #     (1, ('req_enccounter', None))
+        # )

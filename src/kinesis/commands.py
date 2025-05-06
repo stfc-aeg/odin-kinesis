@@ -126,8 +126,7 @@ def request_command(name, msg_id, response_code, length, format=None, **kwargs):
                    response_length=length,
                    response_format=format)
 
-# Register commands
-
+# -------- Register commands --------
 
 # Page 46: Flash screen
 CMD.register(Command('identify', 0x0223))
@@ -143,34 +142,17 @@ CMD.register(request_command('req_jogparams', 0x0417, 0x0418, 22))
 # Page 137: Get kcube settings
 CMD.register(request_command('get_kcubemmiparams', 0x0521, 0x0522, 36,
                              compatible_devices=['KST101', 'KDC101', 'KDB101', 'BBD30*']))
-# Page 73: General move parameters / backlash settings
-CMD.register(request_command('req_genmoveparams', 0x043B, 0x043C, 6))
 # Page 76: Home parameters
 CMD.register(request_command('req_homeparams', 0x0441, 0x0442, 14))
 
 # Page 80: Move to home
 CMD.register(Command('move_home', 0x0443, response_name='move_homed', response_code=0x0444, response_length=0))
 
-# Page 74: set/request relative movement parameter (data +4 bytes: movement value in encoder counts)
-CMD.register(Command('set_moverelparams', 0x0445, param1=0x06))
-CMD.register(request_command('req_moverelparams', 0x0446, 0x0447, 6))
-# Page 80: Move by relative amount (set by set_moverelparams or by data: +4 bytes, movement in encoder counts)
-CMD.register(move_command('move_relative_param', 0x0448))
-CMD.register(move_command('move_relative_arg', 0x0448, param1=0x06))
-
 # Page 75: Set/req absolute movement parameter (data +4 bytes: movement value in encoder counts)
 CMD.register(Command('set_moveabsparams', 0x0450, param1=0x06))
 CMD.register(request_command('req_moveabsparams', 0x0451, 0x0452, 6))
-# Page 80: Move predefined absolute (set by set_moveabsparams or by data +4 bytes: location value in encoder counts)
-CMD.register(move_command('move_absolute_param', 0x0453))
+# Page 80: Move predefined absolute (data +4 bytes: location value in encoder counts)
 CMD.register(move_command('move_absolute_arg', 0x0453, param1=0x06))
-
-# Page 66: Set velocity parameters (data +12 bytes: 4 minimum, 4 acceleration, 4 maximum velocity)
-CMD.register(Command('set_velparams', 0x0413, param1=0x0E))
-CMD.register(request_command('req_velparams', 0x0414, 0x0415, 14))
-# Page 87: Move at fixed speed forward (param2 0x01) or backward (param2 0x02)
-CMD.register(move_command('move_velocity_forward', 0x0457, param2=0x01))
-CMD.register(move_command('move_velocity_backward', 0x0457, param2=0x02))
 
 # Page 68: Set/req jog parameters (data +20 bytes: 2 jog mode, 4 jog step size, 4 min, 4 acceleration, 4 max velocity, 2 stop mode)
 CMD.register(Command('set_jogparams', 0x0416, param1=0x16))
@@ -181,3 +163,32 @@ CMD.register(move_command('move_jog_backward', 0x046A, param2=0x02))
 
 # Page 88: Stop movement (abrupt: param2 0x01, profiled: 0x02)
 CMD.register(move_command('move_stop', 0x0465, param2=0x01))
+
+# -------- Device-Specific Command Map --------
+
+DEVICE_COMMANDS: Dict[str, Dict[str, Command]] = {
+    'move': {
+        'KDC101': CMD.get_command('move_absolute_arg')
+    },
+    'home': {
+        'KDC101': CMD.get_command('move_home')
+    },
+    'stop': {
+        'KDC101': CMD.get_command('move_stop')
+    },
+    'jog_forward': {
+        'KDC101': CMD.get_command('move_jog_forward')
+    },
+    'jog_backward': {
+        'KDC101': CMD.get_command('move_jog_backward')
+    },
+    'get_jog_params': {
+        'KDC101': CMD.get_command('req_jogparams')
+    },
+    'set_jog_params': {
+        'KDC101': CMD.get_command('set_jogparams')
+    },
+    'get_position': {
+        'KDC101': CMD.get_command('req_enccounter')
+    }
+}
