@@ -131,7 +131,7 @@ class Motor():
 
     def set_target_position(self, pos):
         """Set the target position of the motor."""
-        pos = int(pos)
+        pos = float(pos)
         self.target_position = pos
 
         if self.target_position != self.current_position:
