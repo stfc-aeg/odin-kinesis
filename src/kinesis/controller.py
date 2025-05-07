@@ -1,33 +1,26 @@
 """Class to manage some number of motor controllers."""
 
-from tornado.ioloop import PeriodicCallback
-
-from odin.adapters.adapter import (ApiAdapter, ApiAdapterRequest,
-                                   ApiAdapterResponse, request_types, response_types,
-                                   wants_metadata)
-from odin.util import decode_request_body
-
+from odin.adapters.adapter import (ApiAdapterResponse)
 from odin.adapters.parameter_tree import ParameterTree, ParameterTreeError
 
 # Motor imports
 from concurrent import futures
 from tornado.concurrent import run_on_executor
 
-import serial
 import time
 import logging
 import json
 
-from kinesis.motor_controller import MotorController
+from kinesis.controllers.baseMotorController import BaseMotorController
+from kinesis.controllers.motController import MotController
+from kinesis.controllers.pzController import PzController
 
 class KinesisError(Exception):
     """Simple exception class to wrap lower-level exceptions."""
     pass
 
 class KinesisController():
-    """Motor adapter class for the ODIN server.
-    """
-
+    """Motor adapter class for the ODIN server."""
     # For additional output information
     DEBUG = False
 
@@ -62,7 +55,13 @@ class KinesisController():
                 stages = details['stages']
                 port = details['port']
                 bay_system = details['bay_system']
-                self.controllers[name] = MotorController(port, controller_type, bay_system, stages)
+
+                if controller_type in ['KDC101']:
+                    self.controllers[name] = MotController(port, controller_type, bay_system, stages)
+                elif controller_type in ['KIM101']:
+                    self.controllers[name] = PzController(port, controller_type, bay_system, stages)
+                else:
+                    logging.debug(f"Controller {name} not supported type of controller.")
 
                 self.tree[name] = self.controllers[name].tree
 

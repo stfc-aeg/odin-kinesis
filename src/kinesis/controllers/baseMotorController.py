@@ -1,40 +1,31 @@
-"""Class to manage the state of some number of motors and process serial commands on their behalf."""
-
+"""Base motor controller class to handle serial communications for Thorlabs controllers.
+Specific implementations of movement and positional commands (relating to the parameters needed)
+will be handled by child classes.
+"""
 import serial
-import time
 import logging
+import time
 
-from kinesis.motor import Motor
 from kinesis.commands import CMD, DEVICE_COMMANDS
+from kinesis.controllers.motor import Motor
 
-class MotorController():
-    """Class to represent an arbitrary motor controller."""
-
-    DEBUG = False
+class BaseMotorController:
+    """Base controller class manages serial communications."""
 
     def __init__(self, port: str, device_type: str, bay_system: bool, stages: dict):
-        """Initialise the motor controller.
-        :param str port: serial port to use
-        :param str device_type: type of motor controller e.g. KDC101
-        :param dict stages: dictionary of stages with name and details (devices.json)
-        """
-        self.device_type = device_type  # Used for command compatibility
-        self.stages = stages  # Used to instantiate motor stages this controls
+        self.device_type = device_type
+        self.stages = stages
 
-        # self.cmd = CMD_RSP("test/config/commands.json")
-        self.cmd = CMD()
+        self.serial = None
+        self._in_buffer = bytearray()
 
-        self.hardware_info = {}  # For storing info about device
+        self._open_serial(port)
 
-        # Create serial connection
-        self.open_serial(port)
-        self._in_buffer = bytearray()  # For potential leftover data between reads
+        self.tree = {}
 
-        time.sleep(1)
-
-        self.stages = {}
         self.tree = {}
         chan_ident = 1
+
         # Create motor children
         for name, details in stages.items():
             stage_type = details['stage_type']
@@ -52,17 +43,13 @@ class MotorController():
         """Post-init function to populate further motor parameters."""
         for motor in self.stages.values():
             motor.initialize()
-
         for name, stage in self.stages.items():
             self.tree[name] = self.stages[name].tree
-
         self.tree = {
             'motors': self.tree
         }
 
-    # ------------ Serial functions ------------
-
-    def open_serial(self, port: str):
+    def _open_serial(self, port: str):
         """Open the serial connection."""
         self.ser = serial.Serial(port, baudrate=115200, bytesize=8, parity=serial.PARITY_NONE,stopbits=serial.STOPBITS_ONE, xonxoff=0, rtscts=True, timeout=1)
 
@@ -130,7 +117,7 @@ class MotorController():
         while i < (len(self._in_buffer)-1):  # mID needs 2 bytes
             mID = self._in_buffer[i:i+2]
             mID = int.from_bytes(mID, 'little')
-            rsp, length = self.cmd.get_response_info(mID)
+            rsp, length = CMD.get_response_info(mID)
             if rsp == "Unknown":  # If this is not a response ID, move on
                 i += 1
                 continue
@@ -168,7 +155,7 @@ class MotorController():
         motor: Motor = None
 
         mID = int.from_bytes(reply[:2], 'little')  # Message ID
-        rsp, length = self.cmd.get_response_info(mID)
+        rsp, length = CMD.get_response_info(mID)
 
         # Channel identity is (usually) third byte if header-only, or first two bytes of non-header data
         if length == 0:
@@ -284,106 +271,3 @@ class MotorController():
                     motor.current_command = DEVICE_COMMANDS[cmd[0]][self.device_type].name
                     # Expected response info - only need name, not length from tuple
                     motor.expected_response, exp_rsp_length = CMD.get_expected_response(motor.current_command)
-
-    # ------------ Controller functions ------------
-
-    def identify(self):
-        """Run the identify command, flashing to identify the controller."""
-        if not self.port_is_open():
-            return
-        self.send_cmd('identify')
-
-    def get_hardware_info(self, value):
-        """Get hardware info for the controller."""
-        if not self.port_is_open():
-            return
-        self.send_cmd('req_info')
-
-    # ------------ Movement functions ------------
-    # These functions await a reply that the motor has reached its position.
-
-    def move(self, params: bytearray, motor: Motor):
-        """Move to a given absolute position.
-        :param bytearray params: command parameters, 4 bytes for target pos in encoder counts
-        """
-        if not self.port_is_open():
-            return
-        logging.debug("move added to queue")
-        motor.await_queue.put(
-            ('move', params)
-        )
-
-    def move_home(self, motor: Motor):
-        """Home the device."""
-        if not self.port_is_open():
-            return
-        motor.await_queue.put(
-            ('home', None)
-        )
-
-    def set_jogparams(self, motor: Motor):
-        """Set the jog parameters for a given stage."""
-        jogparams = [
-            motor.jog_mode.to_bytes(2, byteorder='little'),  # 2 bytes
-            motor.convert_position(motor.jog_step_size),  # 4 bytes
-            motor.convert_velocity(motor.jog_min_vel),  # 4 bytes
-            motor.convert_accel(motor.jog_accel),  # 4 bytes
-            motor.convert_velocity(motor.jog_max_vel),  # 4 bytes
-            motor.jog_stop_mode.to_bytes(2, byteorder='little') # 2 bytes
-        ]
-        params = b''.join(jogparams)
-
-        motor.instant_queue.put(
-            (1, ('set_jog_params', params))
-        )
-
-    def get_jogparams(self, motor: Motor):
-        """Get the jog parameters for a given stage."""
-        motor.instant_queue.put((1, ('get_jog_params', None)))
-
-    def move_jog(self, direction: bool, motor: Motor):
-        """Start a jog movement.
-        :param bool direction: given from motor, True is forward
-        """
-        if not self.port_is_open():
-            return
-        if direction:
-            motor.await_queue.put(
-                ('jog_forward', None)
-            )
-            logging.debug(f"added forward jog to queue")
-        else:
-            motor.await_queue.put(
-                ('jog_backward', None)
-            )
-            logging.debug(f"added backward jog to queue")
-
-    def move_stop(self, motor: Motor):
-        """Stop the current move."""
-        if not self.port_is_open():
-            return
-        
-        # This is an await command, but we want stop to occur immediately - priority 0
-        motor.instant_queue.put(
-            (0, ('stop', None))
-        )
-        # Remove all other await tasks from the queue to avoid continued movement
-        while not motor.await_queue.empty():
-            var = motor.await_queue.get()
-
-    # ------------ Positional functions ------------
-
-    def get_encoder_position(self, motor: Motor):
-        """Get motor position (enccnt). This is then converted to a readable value.
-        :return float: position converted to unit
-        """
-        if not self.port_is_open():
-            return
-        
-        motor.instant_queue.put(
-            (1, ('get_position', None))
-        )
-
-        # motor.instant_queue.put(
-        #     (1, ('req_enccounter', None))
-        # )
