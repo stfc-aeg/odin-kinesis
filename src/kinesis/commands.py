@@ -78,6 +78,40 @@ class Command:
         return struct.unpack(self.response_format, payload)
 
 
+class SubMessageCommand(Command):
+    """Subclass to handle unique message type with subparameter ID. This applies to only a few
+    messages across the protocol, particularly for the TIM/KIM piezo controllers.
+    """
+    submessage_id: Optional[int] = None  # Subcommand will need this, but no useful default
+
+    def build_command(self,
+                      chan_ident: Optional[int] = None,
+                      data: Optional[Tuple[int, ...]] = None,
+                      destination: int = 0x50,
+                      source: int = 0x01) -> bytes:
+        """Build a param Sub-Message. Sub-Message ID goes in data bytes 0-1, and chan_ident in 2-3."""
+        # Starts with submessage id
+        payload = [self.submessage_id]
+
+        # Leave door open for no-chan-ident messages
+        if chan_ident is not None:
+            payload.append(chan_ident)
+
+        if data:
+            payload.extend(data)  # Extend: this could be multiple objects/parameters
+        
+        packer = self.get_packer(len(payload))
+        payload = packer.pack(*payload)
+
+        # If payload, Destination signal
+        if payload:
+            destination |= 0x80
+        
+        header = self.header_packing.pack(self.msg_id,
+                                          self.param1, self.param2, destination, source
+                                          )
+        return header, payload
+
 class CMD:
     _commands: List[Command] = []
     _name_to_command: Dict[str, Command] = {}
