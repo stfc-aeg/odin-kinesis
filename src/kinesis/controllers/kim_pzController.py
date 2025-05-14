@@ -22,7 +22,8 @@ class PzController(BaseMotorController):
         )
 
     def move_home(self, motor: Motor):
-        """Home the device."""
+        """For the KIM devices, this is 'zeroing'. See pages 15/20 of the KIM001/101 manual:
+        https://www.thorlabs.com/drawings/2527d5f06e52745-AF3E603D-F192-6020-FF13C3853C610B19/KIM001-KinesisManual.pdf"""
         if not self.port_is_open():
             return
         motor.await_queue.put(
@@ -31,6 +32,10 @@ class PzController(BaseMotorController):
 
     def set_jogparams(self, motor: Motor):
         """Set the jog parameters for a given stage."""
+        jogparams = [
+            motor.jog_mode.to_bytes(2, byteorder='little')
+        ]
+
         jogparams = [
             motor.jog_mode.to_bytes(2, byteorder='little'),  # 2 bytes
             motor.convert_position(motor.jog_step_size),  # 4 bytes
@@ -91,3 +96,11 @@ class PzController(BaseMotorController):
         motor.instant_queue.put(
             (1, ('get_position', None))
         )
+
+    # ------------ Decode replies ------------
+
+    def _decode_reply(self, reply: bytearray):
+        """Handle the expected responses for the KIM001 or KIM101 devices.
+        Converts bytearray to usable information.
+        :param bytearray reply: bytes to be decoded
+        """

@@ -1,8 +1,13 @@
+"""Class to implement basic functionality for motors that use the 'MGMSG_MOT' style.
+See the communications protocol docs for examples, such as the KDC101.
+Functions implemented are movement, homing, stopping, position-getting, jogging and set jog params.
+"""
 import typing
 import logging
 
 from kinesis.controllers.baseMotorController import BaseMotorController
-from kinesis.controllers.motor import Motor
+from kinesis.motor_stages.motor import Motor
+from kinesis.commands import CMD
 
 class MotController(BaseMotorController):
 
@@ -91,3 +96,73 @@ class MotController(BaseMotorController):
         motor.instant_queue.put(
             (1, ('get_position', None))
         )
+
+    # ------------ Decode replies ------------
+
+    def _decode_reply(self, reply: bytearray):
+        """Handle the expected responses for devices using the MGMSG_MOT command implementations.
+        Converts bytearray to usable information.
+        :param bytearray reply: bytes to be decoded
+        """
+        if not reply:
+            return '','',  # motor, response name
+        motor: Motor = None
+
+        mID = int.from_bytes(reply[:2], 'little')  # Message ID
+        rsp, length = CMD.get_response_info(mID)
+
+        # Channel identity is (usually) third byte if header-only, or first two bytes of non-header data
+        if length == 0:
+            cID = reply[2]
+        else:
+            cID = int.from_bytes(reply[6:8], byteorder='little')
+        # cID = reply[2] if length==0 else reply[6:8]
+        # cID = int.from_bytes(cID, byteorder='little')
+        source = reply[5]  # Source is the final header byte
+
+        # Process the reply in its own statement
+        # motor is identified there in case cID is handled uniquely
+        match rsp, length:
+            case ("Unknown", 0):
+                return "Unknown", None
+            case ("move_homed", 0):
+                motor = self._get_motor_from_channel(cID, source)
+                motor.homing = False
+            case ("move_completed", 14):
+                motor = self._get_motor_from_channel(cID, source)
+                motor.moving = False
+            case ("get_enccounter", 6):
+                motor = self._get_motor_from_channel(cID, source)
+                params = reply[8:]
+                position = motor.read_position(params)
+                motor.current_position = position
+            case ("get_info", 84):
+                hwinfo = reply[6:]
+                # As according to page 52 of manual
+                self.hardware_info = {
+                    "serial_number": int.from_bytes(hwinfo[0:4], byteorder='little'),
+                    "model_number":  hwinfo[4:12].decode('ascii').strip(),
+                    "hardware_type": int.from_bytes(hwinfo[12:14], byteorder='little'),
+                    "firmware_version": {
+                        "major":   hwinfo[16],
+                        "interim": hwinfo[15],
+                        "minor":   hwinfo[14],
+                    },
+                    "hardware_version":   int.from_bytes(hwinfo[78:80], byteorder='little'),
+                    "modification_state": int.from_bytes(hwinfo[80:82], byteorder='little'),
+                    "number_of_channels": int.from_bytes(hwinfo[82:84], byteorder='little')
+                }
+            case ("get_jogparams", 22):
+                motor = self._get_motor_from_channel(cID, source)
+                jogparams = reply[8:]
+                motor.jog_mode = int.from_bytes(jogparams[0:2], byteorder='little')
+                motor.jog_step_size = motor.read_position(jogparams[2:6])
+                motor.jog_min_vel = motor.read_velocity(jogparams[6:10])
+                motor.jog_accel = motor.read_accel(jogparams[10:14])
+                motor.jog_max_vel = motor.read_velocity(jogparams[14:18])
+                motor.jog_stop_mode = int.from_bytes(jogparams[18:20], byteorder='little')
+
+        # Called by _check_reply_queues, return the motor and what the expected response is
+        # If the response needs handling, this has been done already
+        # If the response is in the queue, that gets sorted now
+        return motor, rsp

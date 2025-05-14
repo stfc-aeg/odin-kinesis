@@ -7,7 +7,8 @@ import logging
 import time
 
 from kinesis.commands import CMD, DEVICE_COMMANDS
-from kinesis.controllers.motor import Motor
+from kinesis.motor_stages.baseMotorStage import BaseMotorStage
+from kinesis.motor_stages.encoderStages import EncoderStage
 
 class BaseMotorController:
     """Base controller class manages serial communications."""
@@ -29,15 +30,11 @@ class BaseMotorController:
         # Create motor children
         for name, details in stages.items():
             stage_type = details['stage_type']
-            self.stages[name] = Motor(name, chan_ident, stage_type, self)
+            if stage_type in ['MTS25-Z8', 'MTS50-Z8']:
+                self.stages[name] = EncoderStage(name, chan_ident, stage_type, self)
 
             chan_ident += 1
 
-            self.tree[name] = self.stages[name].tree
-
-        self.tree = {
-            'motors': self.tree
-        }
 
     def initialize(self):
         """Post-init function to populate further motor parameters."""
@@ -73,7 +70,7 @@ class BaseMotorController:
         self.ser.close()
         logging.debug("Serial connection closed.")
 
-    def send_cmd(self, command: str, command_params: bytearray=None, motor:Motor=None):
+    def send_cmd(self, command: str, command_params: bytearray=None, motor: BaseMotorStage=None):
         """Send a command through the serial port.
         :param str command: name of the command to send
         :param bytearray command_params: additional parameter bytes required by command
@@ -147,71 +144,7 @@ class BaseMotorController:
         return None
 
     def _decode_reply(self, reply: bytearray):
-        """Convert reply to usable information.
-        :param bytearray reply: the bytes to be decoded
-        """
-        if not reply:
-            return '','',  # motor, response name
-        motor: Motor = None
-
-        mID = int.from_bytes(reply[:2], 'little')  # Message ID
-        rsp, length = CMD.get_response_info(mID)
-
-        # Channel identity is (usually) third byte if header-only, or first two bytes of non-header data
-        if length == 0:
-            cID = reply[2]
-        else:
-            cID = int.from_bytes(reply[6:8], byteorder='little')
-        # cID = reply[2] if length==0 else reply[6:8]
-        # cID = int.from_bytes(cID, byteorder='little')
-        source = reply[5]  # Source is the final header byte
-
-        # Process the reply in its own statement
-        # motor is identified there in case cID is handled uniquely
-        match rsp, length:
-            case ("Unknown", 0):
-                return "Unknown", None
-            case ("move_homed", 0):
-                motor = self._get_motor_from_channel(cID, source)
-                motor.homing = False
-            case ("move_completed", 14):
-                motor = self._get_motor_from_channel(cID, source)
-                motor.moving = False
-            case ("get_enccounter", 6):
-                motor = self._get_motor_from_channel(cID, source)
-                params = reply[8:]
-                position = motor.read_position(params)
-                motor.current_position = position
-            case ("get_info", 84):
-                hwinfo = reply[6:]
-                # As according to page 52 of manual
-                self.hardware_info = {
-                    "serial_number": int.from_bytes(hwinfo[0:4], byteorder='little'),
-                    "model_number":  hwinfo[4:12].decode('ascii').strip(),
-                    "hardware_type": int.from_bytes(hwinfo[12:14], byteorder='little'),
-                    "firmware_version": {
-                        "major":   hwinfo[16],
-                        "interim": hwinfo[15],
-                        "minor":   hwinfo[14],
-                    },
-                    "hardware_version":   int.from_bytes(hwinfo[78:80], byteorder='little'),
-                    "modification_state": int.from_bytes(hwinfo[80:82], byteorder='little'),
-                    "number_of_channels": int.from_bytes(hwinfo[82:84], byteorder='little')
-                }
-            case ("get_jogparams", 22):
-                motor = self._get_motor_from_channel(cID, source)
-                jogparams = reply[8:]
-                motor.jog_mode = int.from_bytes(jogparams[0:2], byteorder='little')
-                motor.jog_step_size = motor.read_position(jogparams[2:6])
-                motor.jog_min_vel = motor.read_velocity(jogparams[6:10])
-                motor.jog_accel = motor.read_accel(jogparams[10:14])
-                motor.jog_max_vel = motor.read_velocity(jogparams[14:18])
-                motor.jog_stop_mode = int.from_bytes(jogparams[18:20], byteorder='little')
-
-        # Called by _check_reply_queues, return the motor and what the expected response is
-        # If the response needs handling, this has been done already
-        # If the response is in the queue, that gets sorted now
-        return motor, rsp
+        raise NotImplementedError("Reply decoding must be implemented by the controller subclass.")
 
     def _check_reply_queues(self):
         """Check the instant queue to send any commands from it.
