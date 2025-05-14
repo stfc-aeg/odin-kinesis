@@ -11,7 +11,6 @@ import time
 import logging
 import json
 
-from kinesis.controllers.baseMotorController import BaseMotorController
 from kinesis.controllers.motController import MotController
 from kinesis.controllers.pzController import PzController
 
@@ -63,12 +62,10 @@ class KinesisController():
                 else:
                     logging.debug(f"Controller {name} not supported type of controller.")
 
-                self.tree[name] = self.controllers[name].tree
-
-        self.param_tree = ParameterTree({
-            'bg_task_interval': (lambda: self.bg_await_reply_interval, None),
-            'controllers': self.tree
-        })
+        # self.param_tree = ParameterTree({
+        #     'bg_task_interval': (lambda: self.bg_await_reply_interval, None),
+        #     'controllers': self.tree
+        # })
 
         logging.debug('KinesisAdapter loaded')
 
@@ -111,6 +108,13 @@ class KinesisController():
         """Post-init function."""
         for name, controller in self.controllers.items():
             controller.initialize()
+
+            self.tree[name] = controller.tree
+
+        self.param_tree = ParameterTree({
+            'bg_task_interval': (lambda: self.bg_await_reply_interval, None),
+            'controllers': self.tree
+        })
 
         logging.debug("Starting background task.")
         self._start_background_task()

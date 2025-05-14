@@ -3,11 +3,14 @@ It tracks the encoder/scale-factor values for the stage type, the command queue 
 and handles conversions for that motor.
 """
 import logging
-from queue import Queue, PriorityQueue
+from kinesis.motor_stages.baseMotorStage import BaseMotorStage
 
-class Motor():
-    """Class to represent the state of a motor stage."""
-
+class EncoderStage(BaseMotorStage):
+    """Class to represent the state of a motor stage.
+    The stages targeted here are those such as the MTS50-Z8 which use an encoder to calculate their
+    position. This is for the conversion functions, which should work similarly across stages.
+    These stages also have the same jog parameters, generically using the MGMSG_SET_JOGPARAMS msg.
+    """
     # POS = EncCnt x Pos
     # VEL = EncCnt x T x 65536 x Vel
     # ACC = EncCnt x T^2 x 65536 x Acc
@@ -16,24 +19,8 @@ class Motor():
     # ==> ACC (PRM1-Z8) = 14.6574 x Acc
 
     def __init__(self, name, chan_ident: int=1, stage_type: str=None, controller=None, destination=0x50):
-        self.name = name
-        self.channel_identity = chan_ident  # For commands
-        self.command_queue = []
-        self.current_command = None
-        self.expected_response = None
-
-        self.await_queue = Queue(maxsize=0)
-        self.instant_queue = PriorityQueue(maxsize=0)
-
-        self.controller = controller
-        self.destination = destination
-
-        self.moving = False
-        self.homing = False
-        self.current_position = 0
-        self.target_position = None
-
-        self.DEBUG = False
+        # Initialise properties and tree of base motor stage
+        super().__init__(name, chan_ident, stage_type, controller, destination)
 
         # Device parameters should be provided by motor controller
         self.stage_type = getattr(STAGETYPES, stage_type, STAGETYPES.MTS50_Z8)
@@ -48,35 +35,21 @@ class Motor():
         self.jog_step_size = 1  # mm
         self.jog_min_vel = 0  # mm/s
         self.jog_accel = 0.5  # mm/s^2
-        self.jog_max_vel = 1  # mm/s 
+        self.jog_max_vel = 1  # mm/s
         self.jog_stop_mode = 0x02  # Profiled, 0x01 is abrupt
-
-        self.tree = {
-            'position': {
-                'home': (lambda: None, self.home),
-                'set_target_pos': (lambda: self.target_position, self.set_target_position),
-                'current_pos': (lambda: self.get_current_position(), None),
-                'stop': (lambda: None, self.stop)
-            },
-            'command': {
-                'current_command': (lambda: self.current_command, None),
-                'expected_response': (lambda: self.expected_response, None),
-                'command_queue': (lambda: self.command_queue, None)
-            },
-            'jog': {
-                'mode': (lambda: self.jog_mode, self.set_jog_mode),
-                'step_size': (lambda: self.jog_step_size, self.set_jog_step_size),
-                'min_vel': (lambda: self.jog_min_vel, self.set_jog_min_vel),
-                'accel': (lambda: self.jog_accel, self.set_jog_accel),
-                'max_vel': (lambda: self.jog_max_vel, self.set_jog_max_vel),
-                'stop_mode': (lambda: self.jog_stop_mode, self.set_jog_stop_mode),
-                'step': (lambda: None, self.jog)
-            }
-        }
 
     def initialize(self):
         """Post-init adapter function to get required parameters."""
-        logging.debug("Adding current pos to tree for motors")
+        logging.debug(f"Initialize: updating tree for Encoder Stage {self.name}.")
+        self.tree['jog'] = {
+            'mode': (lambda: self.jog_mode, self.set_jog_mode),
+            'step_size': (lambda: self.jog_step_size, self.set_jog_step_size),
+            'min_vel': (lambda: self.jog_min_vel, self.set_jog_min_vel),
+            'accel': (lambda: self.jog_accel, self.set_jog_accel),
+            'max_vel': (lambda: self.jog_max_vel, self.set_jog_max_vel),
+            'stop_mode': (lambda: self.jog_stop_mode, self.set_jog_stop_mode),
+            'step': (lambda: None, self.jog)
+        }
         self.controller.get_jogparams(self)
 
     # ------------ Conversion functions ------------
@@ -121,33 +94,6 @@ class Motor():
         """Convert 4-byte controller acceleration value back to mm/s^2."""
         acc_apt = int.from_bytes(acc_bytes, byteorder='little', signed=True)
         return round((acc_apt/self.sf_acc), 4)
-
-    # ------------ Positional functions ------------
-
-    def get_current_position(self):
-        """Get the current position of this motor."""
-        self.controller.get_encoder_position(self)
-        return self.current_position
-
-    def set_target_position(self, pos):
-        """Set the target position of the motor."""
-        pos = float(pos)
-        self.target_position = pos
-
-        if self.target_position != self.current_position:
-            params = self.convert_position(self.target_position)
-            self.controller.move(params, self)
-
-    def home(self, value):
-        """Home the motor."""
-        self.homing = True
-        self.controller.move_home(self)
-
-    def stop(self, value):
-        """Stop the motor."""
-        self.homing = False
-        self.moving = False
-        self.controller.move_stop(self)
 
     # ------------ Jog functions ------------
 
