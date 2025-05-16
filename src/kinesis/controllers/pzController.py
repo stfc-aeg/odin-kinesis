@@ -2,7 +2,8 @@ import typing
 import logging
 
 from kinesis.controllers.baseMotorController import BaseMotorController
-from kinesis.motor_stages.motor import Motor
+from kinesis.motor_stages.piezoStages import PiezoStage
+from kinesis.commands import CMD
 
 class PzController(BaseMotorController):
 
@@ -11,7 +12,7 @@ class PzController(BaseMotorController):
 
     # -------- PZMOT Implementations --------
 
-    def move(self, params: bytearray, motor: Motor):
+    def move(self, params: bytearray, motor: PiezoStage):
         """Move to a given absolute position.
         :param bytearray params: command parameters, 4 bytes for target pos in encoder counts
         """
@@ -21,7 +22,7 @@ class PzController(BaseMotorController):
             ('move', params)
         )
 
-    def move_home(self, motor: Motor):
+    def move_home(self, motor: PiezoStage):
         """Home the device."""
         if not self.port_is_open():
             return
@@ -29,7 +30,7 @@ class PzController(BaseMotorController):
             ('home', None)
         )
 
-    def set_jogparams(self, motor: Motor):
+    def set_jogparams(self, motor: PiezoStage):
         """Set the jog parameters for a given stage."""
         jogparams = [
             motor.jog_mode.to_bytes(2, byteorder='little'),  # 2 bytes
@@ -45,11 +46,11 @@ class PzController(BaseMotorController):
             (1, ('set_jog_params', params))
         )
 
-    def get_jogparams(self, motor: Motor):
+    def get_jogparams(self, motor: PiezoStage):
         """Get the jog parameters for a given stage."""
         motor.instant_queue.put((1, ('get_jog_params', None)))
 
-    def move_jog(self, direction: bool, motor: Motor):
+    def move_jog(self, direction: bool, motor: PiezoStage):
         """Start a jog movement.
         :param bool direction: given from motor, True is forward
         """
@@ -66,7 +67,7 @@ class PzController(BaseMotorController):
             )
             logging.debug(f"added backward jog to queue")
 
-    def move_stop(self, motor: Motor):
+    def move_stop(self, motor: PiezoStage):
         """Stop the current move."""
         if not self.port_is_open():
             return
@@ -81,7 +82,7 @@ class PzController(BaseMotorController):
 
     # ------------ Positional functions ------------
 
-    def get_encoder_position(self, motor: Motor):
+    def get_encoder_position(self, motor: PiezoStage):
         """Get motor position (enccnt). This is then converted to a readable value.
         :return float: position converted to unit
         """
@@ -91,3 +92,39 @@ class PzController(BaseMotorController):
         motor.instant_queue.put(
             (1, ('get_position', None))
         )
+
+    # ------------ Decode replies ------------
+
+    def _decode_reply(self, reply: bytearray):
+        """Handle expected responses for devices using the PZMOT command implementations.
+        Converts the bytearray to usable information.
+        :param bytearray reply: bytes to be decoded
+        """
+        if not reply:
+            return '', ''  # motor, response name
+        motor: PiezoStage = None
+
+        mID = int.from_bytes(reply[:2], 'little')  # Message ID
+        rsp, length = CMD.get_response_info(mID)
+
+        # Channel identity is (usually) third byte if header-only, or first two bytes of non-header data
+        # For submessage-IDs, the cID will be the third and fourth bytes of non-header data
+        if length == 0:
+            cID = reply[2]
+        elif mID==0x08C2:  # Submessage get_ code
+            subMId = int.from_bytes(reply[6:8], byteorder='little')
+            cID = int.from_bytes(reply[8:10], byteorder='little')
+        else:  # not submessage, has data
+            cID = int.from_bytes(reply[6:8], byteorder='little')
+
+        source = reply[5]
+
+        match rsp, length:
+            case ("Unknown", 0):
+                return "Unknown", None
+            case ("move_completed", 14):
+                motor = self._get_motor_from_channel(cID, source)
+                motor.moving = False
+            case ("pzmot_getparams", r_len):
+                # Variable length on this reply
+                pass

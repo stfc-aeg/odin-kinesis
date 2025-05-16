@@ -62,12 +62,11 @@ class EncoderStage(BaseMotorStage):
         mv_enccnt = int(movement * self.enc_cnt)
         return mv_enccnt.to_bytes(4, byteorder='little', signed=True)
 
-    def read_position(self, enccnt_bytes):
-        """Convert position bytes back to a readable figure (depends on stage: mm, deg, etc.).
+    def read_position(self, enc_cnt):
+        """Convert encoder count back to a readable figure (depends on stage: mm, deg, etc.).
         :return float: rounded converted encoder value
         """
-        enccnt = int.from_bytes(enccnt_bytes, byteorder='little', signed=True)
-        return round((enccnt/self.enc_cnt), 4)
+        return round((enc_cnt/self.enc_cnt), 4)
 
     def convert_velocity(self, vel):
         """Convert velocity to the controller format (4 bytes).
@@ -76,12 +75,12 @@ class EncoderStage(BaseMotorStage):
         vel_apt = int(vel * self.sf_vel)
         return vel_apt.to_bytes(4, byteorder='little', signed=True)
 
-    def read_velocity(self, vel_bytes):
+    def read_velocity(self, vel_val):
         """Convert 4-byte controller velocity back to readable value.
         :return velocity: rounded to 4 figures
         """
-        vel_apt = int.from_bytes(vel_bytes, byteorder='little', signed=True)
-        return round((vel_apt/self.sf_vel), 4)
+        # vel_apt = int.from_bytes(vel_bytes, byteorder='little', signed=True)
+        return round((vel_val/self.sf_vel), 4)
 
     def convert_accel(self, accel):
         """Convert acceleration to controller format (4 bytes).
@@ -90,10 +89,21 @@ class EncoderStage(BaseMotorStage):
         acc_apt = int(accel * self.sf_acc)
         return acc_apt.to_bytes(4, byteorder='little', signed=True)
 
-    def read_accel(self, acc_bytes):
+    def read_accel(self, acc_val):
         """Convert 4-byte controller acceleration value back to mm/s^2."""
-        acc_apt = int.from_bytes(acc_bytes, byteorder='little', signed=True)
-        return round((acc_apt/self.sf_acc), 4)
+        # acc_apt = int.from_bytes(acc_bytes, byteorder='little', signed=True)
+        return round((acc_val/self.sf_acc), 4)
+
+    # ------------ Positional functions ------------
+
+    def set_target_position(self, pos):
+        pos = float(pos)
+        self.target_position = pos
+
+        if self.target_position != self.current_position:
+            self.controller.move(pos, self)
+            # params = self.convert_position(self.target_position)
+            # self.controller.move(params, self)
 
     # ------------ Jog functions ------------
 

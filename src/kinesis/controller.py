@@ -111,11 +111,13 @@ class KinesisController():
 
             self.tree[name] = controller.tree
 
-        self.param_tree = ParameterTree({
-            'bg_task_interval': (lambda: self.bg_await_reply_interval, None),
-            'controllers': self.tree
-        })
-
+        try:
+            self.param_tree = ParameterTree({
+                'bg_task_interval': (lambda: self.bg_await_reply_interval, None),
+                'controllers': self.tree
+            })
+        except Exception as e:
+            logging.debug(f"error: {e}")
         logging.debug("Starting background task.")
         self._start_background_task()
 

@@ -5,8 +5,11 @@ will be handled by child classes.
 import serial
 import logging
 import time
+import struct
+from typing import Callable
 
 from kinesis.commands import CMD, DEVICE_COMMANDS
+from kinesis.responses import mID_to_func
 from kinesis.motor_stages.baseMotorStage import BaseMotorStage
 from kinesis.motor_stages.encoderStages import EncoderStage
 
@@ -35,16 +38,18 @@ class BaseMotorController:
 
             chan_ident += 1
 
-
     def initialize(self):
         """Post-init function to populate further motor parameters."""
+        logging.debug(f"controller init")
         for motor in self.stages.values():
             motor.initialize()
+        logging.debug(f"made it through motor init")
         for name, stage in self.stages.items():
             self.tree[name] = self.stages[name].tree
         self.tree = {
             'motors': self.tree
         }
+        logging.debug(f"tree created")
 
     def _open_serial(self, port: str):
         """Open the serial connection."""
@@ -70,67 +75,137 @@ class BaseMotorController:
         self.ser.close()
         logging.debug("Serial connection closed.")
 
-    def send_cmd(self, command: str, command_params: bytearray=None, motor: BaseMotorStage=None):
-        """Send a command through the serial port.
-        :param str command: name of the command to send
-        :param bytearray command_params: additional parameter bytes required by command
-        :param Motor: motor to send the command to
-        :param bool await_response: does the response require waiting (e.g.: movement taking time)
-        """
+    def send_cmd(self, command_fn: Callable, command_args, motor: BaseMotorStage):
         if not self.port_is_open() or not motor:
             return
-
-        # Command header structure:
-        # bytes | detail
-        # 0, 1  | message id
-        # 2, 3  | param1/2, or data packet length if command has data
-        # 4     | destination: 0x50 but different for bay/card systems
-        # 5     | source: 0x01 as host is always communicating
-
-        # cmd = CMD.get_command(command)
-        cmd = DEVICE_COMMANDS[command][self.device_type]
-        data = cmd.build_command(
-            chan_ident=motor.channel_identity,
-            data=command_params,
-            destination=motor.destination
+        
+        data = command_fn(
+            cID=motor.channel_identity,
+            dest=motor.destination,
+            source=0x01,  # Page 35: this shouldn't change
+            **(command_args or {})
         )
+        # command functions return bytes and exp_rsp
+        self.ser.write(data['bytes'])
 
-        self.ser.write(data)
+        # Return any expected response info
+        return data.get('exp_rsp', None)
+
+
+    # def send_cmd(self, command: str, command_params: bytearray=None, motor: BaseMotorStage=None):
+    #     """Send a command through the serial port.
+    #     :param str command: name of the command to send
+    #     :param bytearray command_params: additional parameter bytes required by command
+    #     :param Motor: motor to send the command to
+    #     :param bool await_response: does the response require waiting (e.g.: movement taking time)
+    #     """
+    #     if not self.port_is_open() or not motor:
+    #         return
+
+    #     # Command header structure:
+    #     # bytes | detail
+    #     # 0, 1  | message id
+    #     # 2, 3  | param1/2, or data packet length if command has data
+    #     # 4     | destination: 0x50 but different for bay/card systems
+    #     # 5     | source: 0x01 as host is always communicating
+
+    #     # cmd = CMD.get_command(command)
+    #     cmd = DEVICE_COMMANDS[command][self.device_type]
+    #     data = cmd.build_command(
+    #         chan_ident=motor.channel_identity,
+    #         data=command_params,
+    #         destination=motor.destination
+    #     )
+
+    #     self.ser.write(data)
 
     def _recv_reply(self):
-        """Receive and parse a reply."""
+        """Receive any available replies."""
         if not self.port_is_open():
             return []
-
-        time.sleep(0.04)  # necessary delay
-
-        # Get every byte - this could be multiple messages
+        time.sleep(0.04)  # Necessary delay for data arrival
+        # Fill buffer from serial
         while self.ser.in_waiting > 0:
             self._in_buffer.extend(self.ser.read())
-
-        # Process raw into replies
         replies = []
-        i = 0
-        while i < (len(self._in_buffer)-1):  # mID needs 2 bytes
-            mID = self._in_buffer[i:i+2]
-            mID = int.from_bytes(mID, 'little')
-            rsp, length = CMD.get_response_info(mID)
-            if rsp == "Unknown":  # If this is not a response ID, move on
-                i += 1
+        # While there is more data than at least one header
+        while len(self._in_buffer) >= 6:
+            # Check bytes for known message ID
+            mID, length = struct.unpack_from("<HH", self._in_buffer)
+            if not mID in mID_to_func:
+                logging.debug(f"Message ID not recognised.")
+                self._in_buffer = self._in_buffer[1:]  # Remove first byte and check again
                 continue
-            msg_length = 6 + length  # Header is 6 bytes
-            if i + msg_length > len(self._in_buffer):
-                # Not enough data yet, break
-                break
-        
-            msg = self._in_buffer[i:i+msg_length]
-            replies.append(msg)
-            i += msg_length
 
-        # Any unprocessed bytes 
-        self._in_buffer = self._in_buffer[i:]
+            # Now identified as a potential message, check other locations
+            long = self._in_buffer[4] & 0x80  # MSB of byte 4 is 'post-header data' flag
+            dest = self._in_buffer[4] & ~0x80  # Dest is rest of byte
+            source = self._in_buffer[5]  # 5th byte is source
+            # Check locations
+            if dest not in (0x00, 0x01) or source not in (
+                0x00, 0x11, 0x21, 0x22, 0x23, 0x24,
+                0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x50):
+                logging.debug(f"Invalid source or destination for msg {mID}, src: {source}, dest: {dest}")
+                self._in_buffer = self._in_buffer[1:]  # Remove first byte and check again
+                continue
+
+            # Post-header data message handling
+            if long:
+                # Messages are limited in docs to 255 bytes
+                if length > 255:
+                    logging.debug(f"Invalid length {length} for mID {mID}.")
+                    self._in_buffer = self._in_buffer[1:]  # Remove first byte and check again
+                    continue
+            else:
+                length = 0
+            msg_length = 6+length
+
+            # Check if entire message is available
+            if len(self._in_buffer) < msg_length:
+                # Wait for more data next time, retaining buffer
+                break
+            # If it is, get the message
+            msg = bytes(self._in_buffer[:msg_length])
+            replies.append(msg)
+            # Remove message from the buffer
+            self._in_buffer = self._in_buffer[msg_length:]
 
         return replies
+
+    # def _recv_reply(self):
+    #     """Receive and parse a reply."""
+    #     if not self.port_is_open():
+    #         return []
+
+    #     time.sleep(0.04)  # necessary delay
+
+    #     # Get every byte - this could be multiple messages
+    #     while self.ser.in_waiting > 0:
+    #         self._in_buffer.extend(self.ser.read())
+
+    #     # Process raw into replies
+    #     replies = []
+    #     i = 0
+    #     while i < (len(self._in_buffer)-1):  # mID needs 2 bytes
+    #         mID = self._in_buffer[i:i+2]
+    #         mID = int.from_bytes(mID, 'little')
+    #         rsp, length = CMD.get_response_info(mID)
+    #         if rsp == "Unknown":  # If this is not a response ID, move on
+    #             i += 1
+    #             continue
+    #         msg_length = 6 + length  # Header is 6 bytes
+    #         if i + msg_length > len(self._in_buffer):
+    #             # Not enough data yet, break
+    #             break
+        
+    #         msg = self._in_buffer[i:i+msg_length]
+    #         replies.append(msg)
+    #         i += msg_length
+
+    #     # Any unprocessed bytes 
+    #     self._in_buffer = self._in_buffer[i:]
+
+    #     return replies
 
     def _get_motor_from_channel(self, cID: int, source: int):
         """Return a motor object based on the channel identity and source values passed."""
@@ -154,23 +229,15 @@ class BaseMotorController:
         # Send one instant command from the queue, if there is one
         for name, motor in self.stages.items():
             if not motor.instant_queue.empty():
-                priority, cmd = motor.instant_queue.get()
-                self.send_cmd(
-                    command=cmd[0],
-                    command_params=cmd[1],
-                    motor=motor
-                )
+                priority, (cmd_fn, cmd_args) = motor.instant_queue.get()
+                self.send_cmd(cmd_fn, cmd_args, motor)
             # With no active command and one in queue, send one
             if (motor.current_command is None) and (not motor.await_queue.empty()):
-                cmd = motor.await_queue.get()
-                self.send_cmd(
-                    command=cmd[0],
-                    command_params=cmd[1],
-                    motor=motor
-                )
-                motor.current_command = DEVICE_COMMANDS[cmd[0]][self.device_type].name
-                # Expected response info - only need name, not length from tuple
-                motor.expected_response, exp_rsp_length = CMD.get_expected_response(motor.current_command)
+                cmd_fn, cmd_args = motor.await_queue.get()
+                exp_rsp = self.send_cmd(cmd_fn, cmd_args, motor)
+
+                motor.current_command = cmd_fn.__name__
+                motor.expected_response = exp_rsp['name']
 
         # Then process replies
         replies = self._recv_reply()
@@ -193,14 +260,9 @@ class BaseMotorController:
                 if motor.await_queue.empty():
                     logging.debug(f"Motor {motor.name} queue cleared.")
                 else:
-                    cmd = motor.await_queue.get()
-                    logging.debug(f"Command {cmd} retrived from motor {motor.name} queue.")
-                    # Commands are saved in queue as (command, parameters)
-                    self.send_cmd(
-                        command=cmd[0],
-                        command_params=cmd[1],
-                        motor=motor
-                    )
-                    motor.current_command = DEVICE_COMMANDS[cmd[0]][self.device_type].name
-                    # Expected response info - only need name, not length from tuple
-                    motor.expected_response, exp_rsp_length = CMD.get_expected_response(motor.current_command)
+                    cmd_fn, cmd_args = motor.await_queue.get()
+                    exp_rsp = self.send_cmd(cmd_fn, cmd_args, motor)
+
+                    motor.current_command = cmd_fn.__name__
+                    motor.expected_response = exp_rsp['name']
+

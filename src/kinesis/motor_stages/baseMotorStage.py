@@ -3,11 +3,11 @@ It tracks the encoder/scale-factor values for the stage type, the command queue 
 and handles conversions for that motor.
 """
 import logging
+import itertools
 from queue import Queue, PriorityQueue
 
 class BaseMotorStage():
     """Class to represent the state of a motor stage."""
-
     def __init__(self, name, chan_ident: int=1, stage_type: str=None, controller=None, destination=0x50):
         self.name = name
         self.channel_identity = chan_ident  # For commands
@@ -25,6 +25,10 @@ class BaseMotorStage():
         self.homing = False
         self.current_position = 0
         self.target_position = None
+
+        # Cannot compare functions as a queue priority tool, as all but stop are '1'. This iterator
+        # will increment each so that simple function-in-queue structure can stay
+        self._queue_counter = itertools.count()
 
         self.tree = {
             'position': {
@@ -49,12 +53,7 @@ class BaseMotorStage():
 
     def set_target_position(self, pos):
         """Set the target position of the motor."""
-        pos = float(pos)
-        self.target_position = pos
-
-        if self.target_position != self.current_position:
-            params = self.convert_position(self.target_position)
-            self.controller.move(params, self)
+        raise NotImplementedError(f"Target position handling should be done on a case-by-case basis.")
 
     def home(self, value):
         """Home the motor."""
