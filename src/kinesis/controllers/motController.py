@@ -6,8 +6,7 @@ import typing
 import logging
 
 from kinesis.controllers.baseMotorController import BaseMotorController
-from kinesis.motor_stages.encoderStages import EncoderStage  # Assumption for this is encoder stage
-from kinesis.commands import CMD
+from kinesis.motor_stages.encoderStages import EncoderStage, ValueType  # Assumption for this is encoder stage
 import kinesis.messages as MSG
 from kinesis.responses import mID_to_func
 
@@ -40,10 +39,10 @@ class MotController(BaseMotorController):
         """Set the jog parameters for a given stage."""
         jogparams = {
             'jog_mode': motor.jog_mode,
-            'step_size': motor.jog_step_size,
-            'min_vel': motor.jog_min_vel,
-            'accel': motor.jog_accel,
-            'max_vel': motor.jog_max_vel,
+            'step_size': motor.val_to_enc(motor.jog_step_size, ValueType.POS),
+            'min_vel': motor.val_to_enc(motor.jog_min_vel, ValueType.VEL),
+            'accel': motor.val_to_enc(motor.jog_accel, ValueType.ACC),
+            'max_vel': motor.val_to_enc(motor.jog_max_vel, ValueType.VEL),
             'stop_mode': motor.jog_stop_mode
         }
         motor.instant_queue.put(
@@ -52,7 +51,10 @@ class MotController(BaseMotorController):
 
     def get_jogparams(self, motor: EncoderStage):
         """Get the jog parameters for a given stage."""
-        motor.instant_queue.put((1, (MSG.mot_req_jogparams, None)))
+        motor.instant_queue.put(
+            (next(motor._queue_counter),
+            (MSG.mot_req_jogparams, None))
+            )
 
     def move_jog(self, direction: bool, motor: EncoderStage):
         """Start a jog movement.
@@ -64,12 +66,10 @@ class MotController(BaseMotorController):
             motor.await_queue.put(
                 (MSG.mot_move_jog, {'direction': 0x01})
             )
-            logging.debug(f"added forward jog to queue")
         else:
             motor.await_queue.put(
                 (MSG.mot_move_jog, {'direction': 0x00})
             )
-            logging.debug(f"added backward jog to queue")
 
     def move_stop(self, motor: EncoderStage):
         """Stop the current move."""
@@ -116,90 +116,21 @@ class MotController(BaseMotorController):
         source = response.get("source")
         motor = self._get_motor_from_channel(cID, source)
 
-        logging.debug(f"response: {response}")
-
         match response["msg"]:
             case "mot_move_completed":
                 motor.moving = False
             case "mot_move_homed":
                 motor.homing = False
             case "mot_get_enccounter":
-                pos = motor.read_position(response["enc_count"])
+                pos = motor.enc_to_val(response["enc_count"], ValueType.POS)
                 motor.current_position = pos
             case "mot_get_jogparams":
                 # This needs a value conversion
                 motor.jog_mode = response["jog_mode"]
-                motor.jog_step_size = response["step_size"]
-                motor.jog_min_vel = response["min_velocity"]
-                motor.jog_accel = response["acceleration"]
-                motor.jog_max_vel = response["max_velocity"]
+                motor.jog_step_size = motor.enc_to_val(response["step_size"], ValueType.POS)
+                motor.jog_min_vel = motor.enc_to_val(response["min_velocity"], ValueType.VEL)
+                motor.jog_accel = motor.enc_to_val(response["acceleration"], ValueType.ACC)
+                motor.jog_max_vel = motor.enc_to_val(response["max_velocity"], ValueType.VEL)
                 motor.jog_stop_mode = response["stop_mode"]
 
         return motor, response["msg"]
-
-    # def _decode_reply(self, reply: bytearray):
-    #     """Handle the expected responses for devices using the MGMSG_MOT command implementations.
-    #     Converts bytearray to usable information.
-    #     :param bytearray reply: bytes to be decoded
-    #     """
-    #     if not reply:
-    #         return '','',  # motor, response name
-    #     motor: EncoderStage = None
-
-    #     mID = int.from_bytes(reply[:2], 'little')  # Message ID
-    #     rsp, length = CMD.get_response_info(mID)
-
-    #     # Channel identity is (usually) third byte if header-only, or first two bytes of non-header data
-    #     if length == 0:
-    #         cID = reply[2]
-    #     else:
-    #         cID = int.from_bytes(reply[6:8], byteorder='little')
-
-    #     source = reply[5]  # Source is the final header byte
-
-    #     # Process the reply in its own statement
-    #     # motor is identified there in case cID is handled uniquely
-    #     match rsp, length:
-    #         case ("Unknown", 0):
-    #             return "Unknown", None
-    #         case ("move_homed", 0):
-    #             motor = self._get_motor_from_channel(cID, source)
-    #             motor.homing = False
-    #         case ("move_completed", 14):
-    #             motor = self._get_motor_from_channel(cID, source)
-    #             motor.moving = False
-    #         case ("get_enccounter", 6):
-    #             motor = self._get_motor_from_channel(cID, source)
-    #             params = reply[8:]
-    #             position = motor.read_position(params)
-    #             motor.current_position = position
-    #         case ("get_info", 84):
-    #             hwinfo = reply[6:]
-    #             # As according to page 52 of manual
-    #             self.hardware_info = {
-    #                 "serial_number": int.from_bytes(hwinfo[0:4], byteorder='little'),
-    #                 "model_number":  hwinfo[4:12].decode('ascii').strip(),
-    #                 "hardware_type": int.from_bytes(hwinfo[12:14], byteorder='little'),
-    #                 "firmware_version": {
-    #                     "major":   hwinfo[16],
-    #                     "interim": hwinfo[15],
-    #                     "minor":   hwinfo[14],
-    #                 },
-    #                 "hardware_version":   int.from_bytes(hwinfo[78:80], byteorder='little'),
-    #                 "modification_state": int.from_bytes(hwinfo[80:82], byteorder='little'),
-    #                 "number_of_channels": int.from_bytes(hwinfo[82:84], byteorder='little')
-    #             }
-    #         case ("get_jogparams", 22):
-    #             motor = self._get_motor_from_channel(cID, source)
-    #             jogparams = reply[8:]
-    #             motor.jog_mode = int.from_bytes(jogparams[0:2], byteorder='little')
-    #             motor.jog_step_size = motor.read_position(jogparams[2:6])
-    #             motor.jog_min_vel = motor.read_velocity(jogparams[6:10])
-    #             motor.jog_accel = motor.read_accel(jogparams[10:14])
-    #             motor.jog_max_vel = motor.read_velocity(jogparams[14:18])
-    #             motor.jog_stop_mode = int.from_bytes(jogparams[18:20], byteorder='little')
-
-    #     # Called by _check_reply_queues, return the motor and what the expected response is
-    #     # If the response needs handling, this has been done already
-    #     # If the response is in the queue, that gets sorted now
-    #     return motor, rsp

@@ -8,7 +8,6 @@ import time
 import struct
 from typing import Callable
 
-from kinesis.commands import CMD, DEVICE_COMMANDS
 from kinesis.responses import mID_to_func
 from kinesis.motor_stages.baseMotorStage import BaseMotorStage
 from kinesis.motor_stages.encoderStages import EncoderStage
@@ -40,16 +39,13 @@ class BaseMotorController:
 
     def initialize(self):
         """Post-init function to populate further motor parameters."""
-        logging.debug(f"controller init")
         for motor in self.stages.values():
             motor.initialize()
-        logging.debug(f"made it through motor init")
         for name, stage in self.stages.items():
             self.tree[name] = self.stages[name].tree
         self.tree = {
             'motors': self.tree
         }
-        logging.debug(f"tree created")
 
     def _open_serial(self, port: str):
         """Open the serial connection."""
@@ -76,48 +72,21 @@ class BaseMotorController:
         logging.debug("Serial connection closed.")
 
     def send_cmd(self, command_fn: Callable, command_args, motor: BaseMotorStage):
+        """Send a command, given the function and any parameters."""
         if not self.port_is_open() or not motor:
             return
-        
+
         data = command_fn(
             cID=motor.channel_identity,
             dest=motor.destination,
             source=0x01,  # Page 35: this shouldn't change
             **(command_args or {})
         )
-        # command functions return bytes and exp_rsp
+        # Command functions return bytes and exp_rsp
         self.ser.write(data['bytes'])
 
         # Return any expected response info
         return data.get('exp_rsp', None)
-
-
-    # def send_cmd(self, command: str, command_params: bytearray=None, motor: BaseMotorStage=None):
-    #     """Send a command through the serial port.
-    #     :param str command: name of the command to send
-    #     :param bytearray command_params: additional parameter bytes required by command
-    #     :param Motor: motor to send the command to
-    #     :param bool await_response: does the response require waiting (e.g.: movement taking time)
-    #     """
-    #     if not self.port_is_open() or not motor:
-    #         return
-
-    #     # Command header structure:
-    #     # bytes | detail
-    #     # 0, 1  | message id
-    #     # 2, 3  | param1/2, or data packet length if command has data
-    #     # 4     | destination: 0x50 but different for bay/card systems
-    #     # 5     | source: 0x01 as host is always communicating
-
-    #     # cmd = CMD.get_command(command)
-    #     cmd = DEVICE_COMMANDS[command][self.device_type]
-    #     data = cmd.build_command(
-    #         chan_ident=motor.channel_identity,
-    #         data=command_params,
-    #         destination=motor.destination
-    #     )
-
-    #     self.ser.write(data)
 
     def _recv_reply(self):
         """Receive any available replies."""
@@ -172,41 +141,6 @@ class BaseMotorController:
 
         return replies
 
-    # def _recv_reply(self):
-    #     """Receive and parse a reply."""
-    #     if not self.port_is_open():
-    #         return []
-
-    #     time.sleep(0.04)  # necessary delay
-
-    #     # Get every byte - this could be multiple messages
-    #     while self.ser.in_waiting > 0:
-    #         self._in_buffer.extend(self.ser.read())
-
-    #     # Process raw into replies
-    #     replies = []
-    #     i = 0
-    #     while i < (len(self._in_buffer)-1):  # mID needs 2 bytes
-    #         mID = self._in_buffer[i:i+2]
-    #         mID = int.from_bytes(mID, 'little')
-    #         rsp, length = CMD.get_response_info(mID)
-    #         if rsp == "Unknown":  # If this is not a response ID, move on
-    #             i += 1
-    #             continue
-    #         msg_length = 6 + length  # Header is 6 bytes
-    #         if i + msg_length > len(self._in_buffer):
-    #             # Not enough data yet, break
-    #             break
-        
-    #         msg = self._in_buffer[i:i+msg_length]
-    #         replies.append(msg)
-    #         i += msg_length
-
-    #     # Any unprocessed bytes 
-    #     self._in_buffer = self._in_buffer[i:]
-
-    #     return replies
-
     def _get_motor_from_channel(self, cID: int, source: int):
         """Return a motor object based on the channel identity and source values passed."""
         # Generally, if cID isn't 1, the 'source' of the response (or 'destination' of the motor)
@@ -243,7 +177,6 @@ class BaseMotorController:
         replies = self._recv_reply()
 
         for reply in replies:
-            # rsp, cID, params = self.decode_reply(reply)
             motor, response = self._decode_reply(reply)
 
             # Bad data
@@ -265,4 +198,3 @@ class BaseMotorController:
 
                     motor.current_command = cmd_fn.__name__
                     motor.expected_response = exp_rsp['name']
-

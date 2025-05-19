@@ -3,7 +3,14 @@ It tracks the encoder/scale-factor values for the stage type, the command queue 
 and handles conversions for that motor.
 """
 import logging
+from enum import Enum, auto
 from kinesis.motor_stages.baseMotorStage import BaseMotorStage
+
+class ValueType(Enum):
+    """Enum for scale factor conversion types. Position, velocity or acceleration."""
+    POS = auto()
+    VEL = auto()
+    ACC = auto()
 
 class EncoderStage(BaseMotorStage):
     """Class to represent the state of a motor stage.
@@ -54,56 +61,39 @@ class EncoderStage(BaseMotorStage):
 
     # ------------ Conversion functions ------------
 
-    def convert_position(self, movement):
-        """Convert a movement to an encoder count in the controller format (4 bytes).
-        :param movement: movement change - e.g. 5mm, 20 degrees
-        :return bytes: movement translated to encoder units
+    def val_to_enc(self, val: float, val_type: ValueType) -> int:
+        """Convert a value (position, velocity, acceleration) to an encoder count.
+        :param float val: value to be converted
+        :param str type: type of value: pos, vel, or acc
         """
-        mv_enccnt = int(movement * self.enc_cnt)
-        return mv_enccnt.to_bytes(4, byteorder='little', signed=True)
+        match val_type:
+            case ValueType.POS:
+                return int(val*self.enc_cnt)
+            case ValueType.VEL:
+                return int(val*self.sf_vel)
+            case ValueType.ACC:
+                return int(val*self.sf_acc)
 
-    def read_position(self, enc_cnt):
-        """Convert encoder count back to a readable figure (depends on stage: mm, deg, etc.).
-        :return float: rounded converted encoder value
-        """
-        return round((enc_cnt/self.enc_cnt), 4)
-
-    def convert_velocity(self, vel):
-        """Convert velocity to the controller format (4 bytes).
-        :return bytes: scaled velocity in bytes
-        """
-        vel_apt = int(vel * self.sf_vel)
-        return vel_apt.to_bytes(4, byteorder='little', signed=True)
-
-    def read_velocity(self, vel_val):
-        """Convert 4-byte controller velocity back to readable value.
-        :return velocity: rounded to 4 figures
-        """
-        # vel_apt = int.from_bytes(vel_bytes, byteorder='little', signed=True)
-        return round((vel_val/self.sf_vel), 4)
-
-    def convert_accel(self, accel):
-        """Convert acceleration to controller format (4 bytes).
-        :return bytes: scaled acceleration in bytes
-        """
-        acc_apt = int(accel * self.sf_acc)
-        return acc_apt.to_bytes(4, byteorder='little', signed=True)
-
-    def read_accel(self, acc_val):
-        """Convert 4-byte controller acceleration value back to mm/s^2."""
-        # acc_apt = int.from_bytes(acc_bytes, byteorder='little', signed=True)
-        return round((acc_val/self.sf_acc), 4)
+    def enc_to_val(self, enc: float, val_type: ValueType) -> float:
+        """Convert decoded bytes back to a useful value."""
+        match val_type:
+            case ValueType.POS:
+                return round((enc/self.enc_cnt), 4)
+            case ValueType.VEL:
+                return round((enc/self.sf_vel), 4)
+            case ValueType.ACC:
+                return round((enc/self.sf_acc), 4)
 
     # ------------ Positional functions ------------
 
     def set_target_position(self, pos):
+        """Set target position. If this differs to current position, move to target position."""
         pos = float(pos)
         self.target_position = pos
 
         if self.target_position != self.current_position:
+            pos = self.val_to_enc(pos, ValueType.POS)
             self.controller.move(pos, self)
-            # params = self.convert_position(self.target_position)
-            # self.controller.move(params, self)
 
     # ------------ Jog functions ------------
 
