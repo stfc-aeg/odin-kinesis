@@ -118,6 +118,16 @@ def mot_get_jogparams(data: bytes) -> Dict[str, Any]:
         "stop_mode": stop_mode
     }
 
+# Page 417: move is complete
+@parser(0x08D6)
+def pzmot_move_completed(data: bytes) -> Dict[str, Any]:
+    cID, position, _, _ = struct.unpack_from("<Hlll", data, HEADER_SIZE)
+    return {
+        "cID": cID,
+        "position": position,
+    }
+
+
 # Pages 371-416: generic message using sub-message IDs as first data bytes to identify function
 # Used by the TIM101 and KIM101 controllers
 @parser(0x08C2)
@@ -127,11 +137,22 @@ def pzmot_get_params(data: bytes) -> Dict[str, Any]:
     match submessage_id:
         # Page 372: return position counter value. KIM101/TIM101
         case 5:  # Get_PZMOT_PosCounts
-            cID, pos, _ = struct.unpack_from("<H", data, HEADER_SIZE)
+            _, cID, pos, _ = struct.unpack_from("<HHll", data, HEADER_SIZE)
             ret.update({
                 "cID": cID,
                 "position": pos
             })
         # Page 396: Read various jog parameters. KIM101 only
         case 0x2D:  # Get_PZMOT_KCubeJogParams
-            pass
+            (_, cID, jog_mode,
+             jog_step_size_fwd, jog_step_size_rev,
+             jog_step_rate, jog_step_accn) = struct.unpack_from("<HHHllll", data, HEADER_SIZE)
+            ret.update({
+                'cID': cID,
+                'jog_mode': jog_mode,
+                'jog_step_size_fwd': jog_step_size_fwd,
+                'jog_step_size_rev': jog_step_size_rev,
+                'jog_step_rate': jog_step_rate,
+                'jog_step_accn': jog_step_accn
+            })
+    return ret

@@ -14,7 +14,7 @@ class PiezoStage(BaseMotorStage):
     def __init__(self, name, chan_ident: int=1, stage_type: str=None, controller=None, destination=0x50):
         # Initialise properties and tree of base motor stage
         super().__init__(name, chan_ident, stage_type, controller, destination)
-
+        logging.debug(f"motor initialising")
         # Details on pages 396-397
         self.jog_mode = 0x02  # Step
         self.jog_step_size_fwd = 250  # 1-2000 Steps
@@ -34,6 +34,16 @@ class PiezoStage(BaseMotorStage):
             'step': (lambda: None, self.jog)
         }
         self.controller.get_jogparams(self)
+
+    # ------------ Movement functions ------------
+
+    def set_target_position(self, pos):
+        """Set the target position of the stage in steps and signal the controller to move."""
+        pos = int(pos)  # Step count is integer
+        self.target_position = pos
+
+        if self.target_position != self.current_position:
+            self.controller.move(pos, self)
 
     # ------------ Jog functions ------------
 
@@ -55,12 +65,12 @@ class PiezoStage(BaseMotorStage):
 
     def set_jog_step_size_fwd(self, value):
         """Set jog step size then update params through controller."""
-        self.set_jog_step_size_fwd = value
+        self.jog_step_size_fwd = value
         self.controller.set_jogparams(self)
 
     def set_jog_step_size_rev(self, value):
         """Set jog step size then update params through controller."""
-        self.set_jog_step_size_rev = value
+        self.jog_step_size_rev = value
         self.controller.set_jogparams(self)
 
     def set_jog_step_rate(self, value):

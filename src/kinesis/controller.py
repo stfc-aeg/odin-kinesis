@@ -13,6 +13,7 @@ import json
 
 from kinesis.controllers.motController import MotController
 from kinesis.controllers.pzController import PzController
+from kinesis.controllers.kim101_controller import KimController
 
 class KinesisError(Exception):
     """Simple exception class to wrap lower-level exceptions."""
@@ -58,7 +59,7 @@ class KinesisController():
                 if controller_type in ['KDC101']:
                     self.controllers[name] = MotController(port, controller_type, bay_system, stages)
                 elif controller_type in ['KIM101']:
-                    self.controllers[name] = PzController(port, controller_type, bay_system, stages)
+                    self.controllers[name] = KimController(port, controller_type, bay_system, stages)
                 else:
                     logging.debug(f"Controller {name} not supported type of controller.")
 

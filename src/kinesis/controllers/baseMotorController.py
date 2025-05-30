@@ -11,6 +11,7 @@ from typing import Callable
 from kinesis.responses import mID_to_func
 from kinesis.motor_stages.baseMotorStage import BaseMotorStage
 from kinesis.motor_stages.encoderStages import EncoderStage
+from kinesis.motor_stages.piezoStages import PiezoStage
 
 class BaseMotorController:
     """Base controller class manages serial communications."""
@@ -34,6 +35,8 @@ class BaseMotorController:
             stage_type = details['stage_type']
             if stage_type in ['MTS25-Z8', 'MTS50-Z8']:
                 self.stages[name] = EncoderStage(name, chan_ident, stage_type, self)
+            if stage_type in ['PD1VM']:
+                self.stages[name] = PiezoStage(name, chan_ident, stage_type, self)
 
             chan_ident += 1
 
@@ -44,6 +47,7 @@ class BaseMotorController:
         for name, stage in self.stages.items():
             self.tree[name] = self.stages[name].tree
         self.tree = {
+            'type': self.device_type,
             'motors': self.tree
         }
 

@@ -95,3 +95,54 @@ def mot_move_stop(cID: int, dest: int, source: int, stop_mode: int) -> MessageDi
     return {
         'bytes': _pack_message(0x0465, dest, source, param1=cID, param2=stop_mode)
     }
+
+# [0x08C0->05] Page 372-373: Set the pzmot position counter. Submessage ID of 05
+def pzmot_set_poscounts(cID: int, dest: int, source: int, pos: int) -> MessageDict:
+    # pos, 0 because enccount is not used
+    data = struct.pack("<HHll", 5, cID, pos, 0)
+    return {
+        'bytes': _pack_message(0x08C0, dest, source, data=data)
+    }
+
+# [0x08C1->05] Page 372-373: request pzmot pos counter.
+def pzmot_req_poscounts(cID: int, dest: int, source: int)  -> MessageDict:
+    return {
+        'bytes': _pack_message(0x08C1, dest, source, param1=5, param2=cID),
+        'exp_rsp': {'mID': 0x08C2, 'name': 'pzmot_get_params'}
+    }
+
+# [0x08D4] Page 417: Move to a specified number of steps away from the zero position
+def pzmot_move_absolute(cID: int, dest: int, source: int, pos: int) -> MessageDict:
+    data = struct.pack("<Hl", cID, pos)
+    return {
+        'bytes': _pack_message(0x08D4, dest, source, data=data),
+        'exp_rsp': {'mID': 0x08D6, 'name': 'pzmot_move_completed'}
+    }
+
+# [0x08D9] Page 419: Start a jog move
+def pzmot_move_jog(cID: int, dest: int, source: int, jog_dir: int) -> MessageDict:
+    # 0x01 Forward, 0x02 Reverse
+    return {
+        'bytes': _pack_message(0x08D9, dest, source, param1=cID, param2=jog_dir),
+        'exp_rsp': {'mID': 0x08D6, 'name': 'pzmot_move_completed'}
+    }
+
+# [0x08C0->2D] Page 396: Set jog parameters for KIM
+def pzmot_set_kcubejogparams(
+        cID: int, dest: int, source: int,
+        jog_mode: int,
+        jog_step_size_fwd: int, jog_step_size_rev: int,
+        jog_step_rate: int, jog_step_accn: int
+) -> MessageDict:
+    data = struct.pack("<HHHllll", 0x2D,
+            cID, jog_mode, jog_step_size_fwd, jog_step_size_rev, jog_step_rate, jog_step_accn)
+    return {
+        'bytes': _pack_message(0x08C0, dest, source, data=data)
+    }
+
+# [0x08C1->2D] Page 396: Get jog parameters for KIM
+def pzmot_get_kcubejogparams(cID: int, dest: int, source: int) -> MessageDict:
+    return {
+        'bytes': _pack_message(0x08C1, dest, source, param1=0x2D, param2=cID),
+        'exp_rsp': {'mID': 0x08C2, 'name': 'pzmot_get_params'}
+    }
