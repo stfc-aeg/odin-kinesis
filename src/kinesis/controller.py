@@ -12,7 +12,6 @@ import logging
 import json
 
 from kinesis.controllers.motController import MotController
-from kinesis.controllers.pzController import PzController
 from kinesis.controllers.kim101_controller import KimController
 
 class KinesisError(Exception):
@@ -107,6 +106,10 @@ class KinesisController():
 
     def initialize(self, adapters):
         """Post-init function."""
+        self.adapters = adapters
+        if 'sequencer' in self.adapters:
+            self.adapters['sequencer'].add_context('kinesis', self)
+
         for name, controller in self.controllers.items():
             controller.initialize()
 
