@@ -94,7 +94,6 @@ class BaseMotorController:
         """Receive any available replies."""
         if not self.port_is_open():
             return []
-        time.sleep(0.04)  # Necessary delay for data arrival
         # Fill buffer from serial
         while self.ser.in_waiting > 0:
             self._in_buffer.extend(self.ser.read())
@@ -160,11 +159,8 @@ class BaseMotorController:
     def get_encoder_position(self, motor: BaseMotorStage):
         raise NotImplementedError("Stage position get must be implemented by controller subclass.")
 
-    def _check_reply_queues(self):
-        """Check the instant queue to send any commands from it.
-        Then check for replies, seeing if a response is expected by any motor.
-        If it is, send the next command from that motor's await_queue.
-        """
+    def _check_command_queues(self):
+        """Check the instant queue to send any commands from it."""
         # Send one instant command from the queue, if there is one
         for name, motor in self.stages.items():
             if not motor.instant_queue.empty():
@@ -178,6 +174,10 @@ class BaseMotorController:
                 motor.current_command = cmd_fn.__name__
                 motor.expected_response = exp_rsp['name']
 
+    def _check_reply_queues(self):
+        """Check for replies, seeing if a response is expected by any motor.
+        If it is, send the next command from that motor's await_queue.
+        """
         # Then process replies
         replies = self._recv_reply()
 

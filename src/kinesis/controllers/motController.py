@@ -68,7 +68,7 @@ class MotController(BaseMotorController):
             )
         else:
             motor.await_queue.put(
-                (MSG.mot_move_jog, {'direction': 0x00})
+                (MSG.mot_move_jog, {'direction': 0x02})
             )
 
     def move_stop(self, motor: EncoderStage):

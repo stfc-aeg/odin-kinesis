@@ -93,8 +93,14 @@ class KinesisController():
             # Only need to check for replies if there's an active command
 
             # Check every controller
-            for name, controller in self.controllers.items():
+            for controller in self.controllers.values():
                 # Do a queue check for the controller
+                controller._check_command_queues()
+
+            # time.sleep(0.02)  # Was necessary delay previously but did not need repeating in every queue
+
+            # With command queues checked, check for replies
+            for controller in self.controllers.values():
                 controller._check_reply_queues()
 
             # Check on interval
