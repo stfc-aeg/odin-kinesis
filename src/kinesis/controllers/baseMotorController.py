@@ -30,9 +30,11 @@ class BaseMotorController:
 
         # Create motor children
         for name, details in stages.items():
+            upper_limit = details['upper_limit']
+            lower_limit = details['lower_limit']
             stage_type = details['stage_type']
             if stage_type in ['MTS25-Z8', 'MTS50-Z8']:
-                self.stages[name] = EncoderStage(name, chan_ident, stage_type, self)
+                self.stages[name] = EncoderStage(name, upper_limit, lower_limit, chan_ident, stage_type, self)
             if stage_type in ['PD1VM']:
                 self.stages[name] = PiezoStage(name, chan_ident, stage_type, self)
 
