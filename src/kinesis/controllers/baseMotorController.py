@@ -26,8 +26,6 @@ class BaseMotorController:
         self._open_serial(port)
 
         self.tree = {}
-
-        self.tree = {}
         chan_ident = 1
 
         # Create motor children
@@ -158,6 +156,9 @@ class BaseMotorController:
 
     def _decode_reply(self, reply: bytearray):
         raise NotImplementedError("Reply decoding must be implemented by the controller subclass.")
+
+    def get_encoder_position(self, motor: BaseMotorStage):
+        raise NotImplementedError("Stage position get must be implemented by controller subclass.")
 
     def _check_reply_queues(self):
         """Check the instant queue to send any commands from it.

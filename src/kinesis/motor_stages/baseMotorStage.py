@@ -34,7 +34,7 @@ class BaseMotorStage():
             'position': {
                 'home': (lambda: None, self.home),
                 'set_target_pos': (lambda: self.target_position, self.set_target_position),
-                'current_pos': (lambda: self.get_current_position(), None),
+                'current_pos': (lambda: self.current_position, None),
                 'stop': (lambda: None, self.stop)
             },
             'command': {
