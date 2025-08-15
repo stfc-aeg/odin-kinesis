@@ -2,7 +2,7 @@ import logging
 
 from tornado.escape import json_decode
 
-from odin.adapters.adapter import ApiAdapter, ApiAdapterResponse, request_types, response_types
+from odin.adapters.adapter import ApiAdapter, ApiAdapterResponse, request_types, response_types, wants_metadata
 from odin.adapters.parameter_tree import ParameterTreeError
 from odin.util import decode_request_body
 
@@ -30,7 +30,7 @@ class KinesisAdapter(ApiAdapter):
         :return: an ApiAdapterResponse object containing the appropriate response
         """
         try:
-            response = self.kinesis.get(path)
+            response = self.kinesis.get(path, wants_metadata(request))
             status_code = 200
         except ParameterTreeError as e:
             response = {'error': str(e)}
