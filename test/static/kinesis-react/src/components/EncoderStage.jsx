@@ -10,7 +10,7 @@ import Form from 'react-bootstrap/Form';
 import Accordion from 'react-bootstrap/Accordion';
 
 const EndPointFormControl = WithEndpoint(Form.Control);
-const EndPointToggle = WithEndpoint(ToggleSwitch);
+const EndPointFormCheck = WithEndpoint(Form.Check);
 const EndPointButton = WithEndpoint(Button);
 
 function EncoderStage(props){
@@ -133,10 +133,15 @@ function EncoderStage(props){
               <Accordion.Body>
                 <Row>
                   <Col>
-                    <Form.Check
-                      type="checkbox"
-                      label="Reverse forward/back"
-                    />
+                    <EndPointButton
+                      endpoint={kinesisEndPoint}
+                      fullpath={dataPath+"/jog/reverse"}
+                      value={data.jog.reverse ? false : true}
+                      event_type="click"
+                      text="reverse forward/back"
+                    >
+                      {data.jog.reverse ? "Unreverse" : "Reverse"} forward/back
+                    </EndPointButton>
                   </Col>
                 </Row>
                 <InputGroup className="mt-2">

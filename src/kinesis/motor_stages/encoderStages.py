@@ -58,7 +58,8 @@ class EncoderStage(BaseMotorStage):
             'accel': (lambda: self.jog_accel, self.set_jog_accel),
             'max_vel': (lambda: self.jog_max_vel, self.set_jog_max_vel),
             'stop_mode': (lambda: self.jog_stop_mode, self.set_jog_stop_mode),
-            'step': (lambda: None, self.jog)
+            'step': (lambda: None, self.jog),
+            'reverse': (lambda: self.reverse_jog, self.reverse_jog_direction)
         }
         self.tree['limits'] = {
             'upper_limit': (lambda: self.upper_limit, self.set_upper_limit),
@@ -119,9 +120,12 @@ class EncoderStage(BaseMotorStage):
         """
         direction = bool(direction)
 
+        if self.reverse_jog:
+            direction = not direction
+
         # Check if step moves beyond limit
         sign = 1 if direction else -1
-        predicted_pos = self.current_pos + self.jog_step_size*sign
+        predicted_pos = self.current_position + self.jog_step_size*sign
         if (self.lower_limit <= predicted_pos) or (predicted_pos <= self.upper_limit):
             self.controller.move_jog(direction, self)
 
