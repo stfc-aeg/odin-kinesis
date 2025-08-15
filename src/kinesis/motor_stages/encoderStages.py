@@ -25,7 +25,7 @@ class EncoderStage(BaseMotorStage):
     # ==> VEL (PRM1-Z8) = 6.2942e4 x Vel
     # ==> ACC (PRM1-Z8) = 14.6574 x Acc
 
-    def __init__(self, name, chan_ident: int=1, stage_type: str=None, controller=None, destination=0x50):
+    def __init__(self, name, upper_limit, lower_limit, chan_ident: int=1, stage_type: str=None, controller=None, destination=0x50):
         # Initialise properties and tree of base motor stage
         super().__init__(name, chan_ident, stage_type, controller, destination)
 
@@ -45,6 +45,9 @@ class EncoderStage(BaseMotorStage):
         self.jog_max_vel = 1  # mm/s
         self.jog_stop_mode = 0x02  # Profiled, 0x01 is abrupt
 
+        self.upper_limit = upper_limit
+        self.lower_limit = lower_limit
+
     def initialize(self):
         """Post-init adapter function to get required parameters."""
         logging.debug(f"Initialize: updating tree for Encoder Stage {self.name}.")
@@ -55,7 +58,12 @@ class EncoderStage(BaseMotorStage):
             'accel': (lambda: self.jog_accel, self.set_jog_accel),
             'max_vel': (lambda: self.jog_max_vel, self.set_jog_max_vel),
             'stop_mode': (lambda: self.jog_stop_mode, self.set_jog_stop_mode),
-            'step': (lambda: None, self.jog)
+            'step': (lambda: None, self.jog),
+            'reverse': (lambda: self.reverse_jog, self.reverse_jog_direction)
+        }
+        self.tree['limits'] = {
+            'upper_limit': (lambda: self.upper_limit, self.set_upper_limit),
+            'lower_limit': (lambda: self.lower_limit, self.set_lower_limit)
         }
         self.controller.get_jogparams(self)
 
@@ -91,9 +99,18 @@ class EncoderStage(BaseMotorStage):
         pos = float(pos)
         self.target_position = pos
 
-        if self.target_position != self.current_position:
+        if (self.target_position != self.current_position) and (
+            self.lower_limit <= self.target_position or self.target_position <= self.upper_limit):
             pos = self.val_to_enc(pos, ValueType.POS)
             self.controller.move(pos, self)
+
+    def set_upper_limit(self, lim):
+        """Set the upper limit position of the stage in mm."""
+        self.upper_limit = lim
+
+    def set_lower_limit(self, lim):
+        """Set the upper limit position of the stage in mm."""
+        self.lower_limit = lim
 
     # ------------ Jog functions ------------
 
@@ -102,7 +119,15 @@ class EncoderStage(BaseMotorStage):
         :param bool direction: True (forward), False (back).
         """
         direction = bool(direction)
-        self.controller.move_jog(direction, self)
+
+        if self.reverse_jog:
+            direction = not direction
+
+        # Check if step moves beyond limit
+        sign = 1 if direction else -1
+        predicted_pos = self.current_position + self.jog_step_size*sign
+        if (self.lower_limit <= predicted_pos) or (predicted_pos <= self.upper_limit):
+            self.controller.move_jog(direction, self)
 
     def set_jog_mode(self, value):
         """Set the jog mode then update the params through the controller.

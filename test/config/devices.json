@@ -1,21 +1,13 @@
 {
-    "sample": {
-        "device_type": "KIM101",
-        "port": "/dev/ttyUSB2",
-        "bay_system": false,
-        "stages":{
-            "sample_mover": {
-                "stage_type": "PD1VM"
-            }
-        }
-    },
     "furnace": {
         "device_type": "KDC101",
-        "port": "/dev/ttyUSB3",
+        "port": "/dev/ttyUSB0",
         "bay_system": false,
         "stages":{
             "heater_a": {
-                "stage_type": "MTS50-Z8"
+                "stage_type": "MTS50-Z8",
+                "upper_limit": 10,
+                "lower_limit": -10
             }
         }
     }

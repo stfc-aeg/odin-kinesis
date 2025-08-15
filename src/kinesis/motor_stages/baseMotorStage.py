@@ -26,6 +26,8 @@ class BaseMotorStage():
         self.current_position = 0
         self.target_position = None
 
+        self.reverse_jog = False
+
         # Cannot compare functions as a queue priority tool, as all but stop are '1'. This iterator
         # will increment each so that simple function-in-queue structure can stay
         self._queue_counter = itertools.count()
@@ -34,7 +36,7 @@ class BaseMotorStage():
             'position': {
                 'home': (lambda: None, self.home),
                 'set_target_pos': (lambda: self.target_position, self.set_target_position),
-                'current_pos': (lambda: self.get_current_position(), None),
+                'current_pos': (lambda: self.current_position, None),
                 'stop': (lambda: None, self.stop)
             },
             'command': {
@@ -45,6 +47,10 @@ class BaseMotorStage():
         }
 
     # ------------ Positional functions ------------
+
+    def reverse_jog_direction(self, rev):
+        """Reverse (True) or unreverse (False) the direction of the jog."""
+        self.reverse_jog = bool(rev)
 
     def get_current_position(self):
         """Get the current position of this motor."""

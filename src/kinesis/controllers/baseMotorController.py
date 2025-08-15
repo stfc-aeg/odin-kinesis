@@ -26,15 +26,15 @@ class BaseMotorController:
         self._open_serial(port)
 
         self.tree = {}
-
-        self.tree = {}
         chan_ident = 1
 
         # Create motor children
         for name, details in stages.items():
+            upper_limit = details['upper_limit']
+            lower_limit = details['lower_limit']
             stage_type = details['stage_type']
             if stage_type in ['MTS25-Z8', 'MTS50-Z8']:
-                self.stages[name] = EncoderStage(name, chan_ident, stage_type, self)
+                self.stages[name] = EncoderStage(name, upper_limit, lower_limit, chan_ident, stage_type, self)
             if stage_type in ['PD1VM']:
                 self.stages[name] = PiezoStage(name, chan_ident, stage_type, self)
 
@@ -96,7 +96,6 @@ class BaseMotorController:
         """Receive any available replies."""
         if not self.port_is_open():
             return []
-        time.sleep(0.04)  # Necessary delay for data arrival
         # Fill buffer from serial
         while self.ser.in_waiting > 0:
             self._in_buffer.extend(self.ser.read())
@@ -159,11 +158,11 @@ class BaseMotorController:
     def _decode_reply(self, reply: bytearray):
         raise NotImplementedError("Reply decoding must be implemented by the controller subclass.")
 
-    def _check_reply_queues(self):
-        """Check the instant queue to send any commands from it.
-        Then check for replies, seeing if a response is expected by any motor.
-        If it is, send the next command from that motor's await_queue.
-        """
+    def get_encoder_position(self, motor: BaseMotorStage):
+        raise NotImplementedError("Stage position get must be implemented by controller subclass.")
+
+    def _check_command_queues(self):
+        """Check the instant queue to send any commands from it."""
         # Send one instant command from the queue, if there is one
         for name, motor in self.stages.items():
             if not motor.instant_queue.empty():
@@ -177,6 +176,10 @@ class BaseMotorController:
                 motor.current_command = cmd_fn.__name__
                 motor.expected_response = exp_rsp['name']
 
+    def _check_reply_queues(self):
+        """Check for replies, seeing if a response is expected by any motor.
+        If it is, send the next command from that motor's await_queue.
+        """
         # Then process replies
         replies = self._recv_reply()
 

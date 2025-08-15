@@ -11,6 +11,7 @@ import time
 import logging
 import json
 
+from kinesis.controllers.baseMotorController import BaseMotorController
 from kinesis.controllers.motController import MotController
 from kinesis.controllers.kim101_controller import KimController
 
@@ -24,7 +25,7 @@ class KinesisController():
     DEBUG = False
 
     # Thread executor used for background tasks
-    executor = futures.ThreadPoolExecutor(max_workers=1)
+    executor = futures.ThreadPoolExecutor(max_workers=2)
 
     def __init__(self, options):
         """Initialise the KinesisAdapter object.
@@ -34,10 +35,11 @@ class KinesisController():
 
         :param kwargs: keyword arguments specifying options
         """
-        self.options = options
         # Options
-        self.bg_await_reply_enable = bool(int(self.options.get('bg_await_reply_enable', 1)))
-        self.bg_await_reply_interval = float(self.options.get('bg_await_reply_interval', 0.5))
+        self.options = options
+        self.bg_tasks_enable = bool(int(self.options.get('bg_tasks_enable', 1)))
+        self.bg_await_reply_interval = float(self.options.get('bg_await_reply_interval', 0.3))
+        self.bg_check_position_interval = float(self.options.get('bg_check_position_interval', 0.5))
         device_config = self.options.get('device_config', 'test/config/devices.json')
 
         self.current_command = None
@@ -45,7 +47,7 @@ class KinesisController():
         self.tree = {}
 
         # Create controller children
-        self.controllers = {}
+        self.controllers: dict[str, BaseMotorController] = {}
         with open(device_config, "r") as file:
             devices = json.load(file)
 
@@ -62,14 +64,25 @@ class KinesisController():
                 else:
                     logging.debug(f"Controller {name} not supported type of controller.")
 
-        # self.param_tree = ParameterTree({
-        #     'bg_task_interval': (lambda: self.bg_await_reply_interval, None),
-        #     'controllers': self.tree
-        # })
-
         logging.debug('KinesisAdapter loaded')
 
     # ------------ background functions ------------
+
+    @run_on_executor
+    def background_check_positions(self):
+        """Background task to check the positions of the motors.
+        This also serves as a 'heartbeat', checking that motors are still connected.
+        """
+        while self.bg_await_reply_enable:  # No need for more than one enable toggle here
+            for controller in self.controllers.values():
+                for name, motor in controller.stages.items():
+                    try:
+                        motor.get_current_position()
+                        # _recv_replies() handles multiple replies, so other thread can handle that
+                    except Exception as e:
+                        logging.error(f"Error checking position for motor {name}: {e}")
+            
+            time.sleep(self.bg_check_position_interval)
 
     @run_on_executor
     def background_await_reply(self):
@@ -80,11 +93,17 @@ class KinesisController():
             # Only need to check for replies if there's an active command
 
             # Check every controller
-            for name, controller in self.controllers.items():
+            for controller in self.controllers.values():
                 # Do a queue check for the controller
+                controller._check_command_queues()
+
+            # time.sleep(0.02)  # Was necessary delay previously but did not need repeating in every queue
+
+            # With command queues checked, check for replies
+            for controller in self.controllers.values():
                 controller._check_reply_queues()
-            
-            # Check every 0.2s
+
+            # Check on interval
             time.sleep(self.bg_await_reply_interval)
 
     def _start_background_task(self):
@@ -96,6 +115,7 @@ class KinesisController():
 
         # Run the background thread task in the thread execution pool
         self.background_await_reply()
+        self.background_check_positions()
 
     def _stop_background_task(self):
         """Stop the background tasks."""

@@ -7,9 +7,10 @@ import Button from 'react-bootstrap/esm/Button';
 
 import InputGroup from 'react-bootstrap/InputGroup';
 import Form from 'react-bootstrap/Form';
+import Accordion from 'react-bootstrap/Accordion';
 
 const EndPointFormControl = WithEndpoint(Form.Control);
-const EndPointToggle = WithEndpoint(ToggleSwitch);
+const EndPointFormCheck = WithEndpoint(Form.Check);
 const EndPointButton = WithEndpoint(Button);
 
 function EncoderStage(props){
@@ -23,133 +24,159 @@ function EncoderStage(props){
   return (
     <TitleCard title={"Motor "+name}>
     <Row>
-      <Col xs={7}>
+      <Col xs={4}>
         <Row>
-          <Col xs={6}>
-            <InputGroup>
-              <InputGroup.Text>Pos.</InputGroup.Text>
-                <InputGroup.Text>{data.position.current_pos}</InputGroup.Text>
-            </InputGroup>
-          </Col>
-          <Col xs={6}>
-            <InputGroup>
-              <InputGroup.Text>Target</InputGroup.Text>
-                <Form.Control
-                  type="number"
-                  value={targetPosition}
-                  event_type="enter"
-                  onChange={handleTargetChange}
-                  disabled={data.moving}
-                >
-                </Form.Control>
-                <EndPointButton
-                  endpoint={kinesisEndPoint}
-                  fullpath={dataPath+"/position/set_target_pos"}
-                  event_type="click"
-                  value={targetPosition}
-                >
-                  Move
-                </EndPointButton>
-
-            </InputGroup>
-          </Col>
+          <EndPointButton
+            endpoint={kinesisEndPoint}
+            fullpath={dataPath+"/position/set_target_pos"}
+            event_type="click"
+            value={targetPosition}
+          >
+            Move to target
+          </EndPointButton>
         </Row>
-        <Row className='mt-3'>
+        <Row className="mt-3">
           <Col>
-            details
-          </Col>
-          <Col>
-          Jog settings
-            <InputGroup>
-              <InputGroup.Text>
-                Step
-              </InputGroup.Text>
-              <EndPointFormControl
-                  endpoint={kinesisEndPoint}
-                  fullpath={dataPath+"/jog/step_size"}
-                  type="number"
-                  event_type="enter"
-                  value={data.jog.step_size}
-              />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>
-                Max vel.
-              </InputGroup.Text>
-              <EndPointFormControl
-                  endpoint={kinesisEndPoint}
-                  fullpath={dataPath+"/jog/max_vel"}
-                  type="number"
-                  event_type="enter"
-                  value={data.jog.max_vel}
-              />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>
-                Accel.
-              </InputGroup.Text>
-              <EndPointFormControl
-                  endpoint={kinesisEndPoint}
-                  fullpath={dataPath+"/jog/accel"}
-                  type="number"
-                  event_type="enter"
-                  value={data.jog.accel}
-              />
-            </InputGroup>
-          </Col>
-        </Row>
-      </Col>
-      <Col xs={5}>
-        <Row>
-          <Col xs={6} className='mr-3'>
-            <Row>
-              <EndPointButton
-                endpoint={kinesisEndPoint}
-                fullpath={dataPath+"/jog/step"}
-                event_type="click"
-                value={true}
-              >
-                Step forward
-              </EndPointButton>
-            </Row>
-            <Row className='mt-3'>
             <EndPointButton
-                endpoint={kinesisEndPoint}
-                fullpath={dataPath+"/jog/step"}
-                event_type="click"
-                value={false}
+              endpoint={kinesisEndPoint}
+              fullpath={dataPath + "/jog/step"}
+              event_type="click"
+              value={true}
+            >
+              Step forward
+            </EndPointButton>
+          </Col>
+          <Col>
+            <EndPointButton
+              endpoint={kinesisEndPoint}
+              fullpath={dataPath + "/jog/step"}
+              event_type="click"
+              value={false}
             >
               Step backward
             </EndPointButton>
-            </Row>
           </Col>
-          <Col xs={6} className="ml-2">
-            <Row>
-              <EndPointButton
-                endpoint={kinesisEndPoint}
-                fullpath={dataPath+"/position/home"}
-                event_type="click"
-                value={true}
-              >Home</EndPointButton>
-            </Row>
-            <Row className='mt-3'>
-              <EndPointButton
-                endpoint={kinesisEndPoint}
-                fullpath={dataPath+"/position/stop"}
-                event_type="click"
-                variant="danger"
-                value={true}
+        </Row>
+        <Row className='mt-3'>
+          <EndPointButton
+            endpoint={kinesisEndPoint}
+            fullpath={dataPath+"/position/home"}
+            event_type="click"
+            value={true}
+          >
+             Home
+          </EndPointButton>
+        </Row>
+        <Row className="mt-3">
+          <EndPointButton
+            endpoint={kinesisEndPoint}
+            fullpath={dataPath+"/position/stop"}
+            event_type="click"
+            variant="danger"
+            value={true}
+          >
+            Stop movement
+          </EndPointButton>
+        </Row>
+      </Col>
+      <Col xs={4}>
+        <Row>
+          <Col>
+            <label>Position (mm)</label>
+          </Col>
+        </Row>
+        <Row>
+          <InputGroup>
+            <InputGroup.Text style={{width:100}}>Current: </InputGroup.Text>
+              <InputGroup.Text>{data.position.current_pos}</InputGroup.Text>
+
+            <InputGroup.Text style={{width:100}}>Target:</InputGroup.Text>
+              <Form.Control
+                type="number"
+                value={targetPosition}
+                event_type="enter"
+                onChange={handleTargetChange}
+                disabled={data.moving}
               >
-                Stop movement
-              </EndPointButton>
-            </Row>
-            <Row>
-              Identify
-            </Row>
-            <Row>
-              etc.
-            </Row>
-          </Col>
+              </Form.Control>
+          </InputGroup>
+        </Row>
+
+        <Row>
+          <InputGroup className="mt-2">
+            <InputGroup.Text>Upper limit (mm)</InputGroup.Text>
+            <EndPointFormControl
+              endpoint={kinesisEndPoint}
+              fullpath={dataPath + "/limits/upper_limit"}
+              type="number"
+              event_type="enter"
+              value={data.limits.upper_limit}
+            />
+          </InputGroup>
+          <InputGroup className="mt-2">
+            <InputGroup.Text>Lower limit (mm)</InputGroup.Text>
+            <EndPointFormControl
+              endpoint={kinesisEndPoint}
+              fullpath={dataPath + "/limits/lower_limit"}
+              type="number"
+              event_type="enter"
+              value={data.limits.lower_limit}
+            />
+          </InputGroup>
+        </Row>
+      </Col>
+      <Col xs={4}>
+        <Row className='mt-2'>
+          <Accordion >
+            <Accordion.Item eventKey="0">
+              <Accordion.Header>Jog/step settings</Accordion.Header>
+              <Accordion.Body>
+                <Row>
+                  <Col>
+                    <EndPointButton
+                      endpoint={kinesisEndPoint}
+                      fullpath={dataPath+"/jog/reverse"}
+                      value={data.jog.reverse ? false : true}
+                      event_type="click"
+                      text="reverse forward/back"
+                    >
+                      {data.jog.reverse ? "Unreverse" : "Reverse"} forward/back
+                    </EndPointButton>
+                  </Col>
+                </Row>
+                <InputGroup className="mt-2">
+                  <InputGroup.Text>Step</InputGroup.Text>
+                  <EndPointFormControl
+                    endpoint={kinesisEndPoint}
+                    fullpath={dataPath + "/jog/step_size"}
+                    type="number"
+                    event_type="enter"
+                    value={data.jog.step_size}
+                  />
+                </InputGroup>
+                <InputGroup className="mt-2">
+                  <InputGroup.Text>Max vel.</InputGroup.Text>
+                  <EndPointFormControl
+                    endpoint={kinesisEndPoint}
+                    fullpath={dataPath + "/jog/max_vel"}
+                    type="number"
+                    event_type="enter"
+                    value={data.jog.max_vel}
+                  />
+                </InputGroup>
+                <InputGroup className="mt-2">
+                  <InputGroup.Text>Accel.</InputGroup.Text>
+                  <EndPointFormControl
+                    endpoint={kinesisEndPoint}
+                    fullpath={dataPath + "/jog/accel"}
+                    type="number"
+                    event_type="enter"
+                    value={data.jog.accel}
+                  />
+                </InputGroup>
+              </Accordion.Body>
+            </Accordion.Item>
+          </Accordion>
         </Row>
       </Col>
     </Row>
