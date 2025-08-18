@@ -8,8 +8,8 @@ from kinesis.responses import mID_to_func
 
 class KimController(BaseMotorController):
 
-    def __init__(self, port: str, device_type: str, bay_system: bool, stages: dict):
-        super().__init__(port, device_type, bay_system, stages)
+    def __init__(self, name, port: str, device_type: str, bay_system: bool, stages: dict):
+        super().__init__(name, port, device_type, bay_system, stages)
 
     # -------- PZMOT Implementations --------
 

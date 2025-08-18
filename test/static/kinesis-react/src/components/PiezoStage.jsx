@@ -3,7 +3,7 @@ import React, {useState} from 'react';
 import { TitleCard, ToggleSwitch, WithEndpoint } from 'odin-react';
 import Col from 'react-bootstrap/Col';
 import Row from 'react-bootstrap/Row';
-import Button from 'react-bootstrap/esm/Button';
+import Button from 'react-bootstrap/Button';
 
 import InputGroup from 'react-bootstrap/InputGroup';
 import Form from 'react-bootstrap/Form';

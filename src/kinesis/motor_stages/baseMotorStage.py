@@ -24,7 +24,7 @@ class BaseMotorStage():
         self.moving = False
         self.homing = False
         self.current_position = 0
-        self.target_position = None
+        self.target_position = 0
 
         self.reverse_jog = False
 

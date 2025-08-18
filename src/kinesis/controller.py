@@ -58,9 +58,9 @@ class KinesisController():
                 bay_system = details['bay_system']
 
                 if controller_type in ['KDC101']:
-                    self.controllers[name] = MotController(port, controller_type, bay_system, stages)
+                    self.controllers[name] = MotController(name, port, controller_type, bay_system, stages)
                 elif controller_type in ['KIM101']:
-                    self.controllers[name] = KimController(port, controller_type, bay_system, stages)
+                    self.controllers[name] = KimController(name, port, controller_type, bay_system, stages)
                 else:
                     logging.debug(f"Controller {name} not supported type of controller.")
 
@@ -75,6 +75,8 @@ class KinesisController():
         """
         while self.bg_await_reply_enable:  # No need for more than one enable toggle here
             for controller in self.controllers.values():
+                if not controller.connected:
+                    return
                 for name, motor in controller.stages.items():
                     try:
                         motor.get_current_position()
@@ -94,6 +96,8 @@ class KinesisController():
 
             # Check every controller
             for controller in self.controllers.values():
+                if not controller.connected:
+                    return
                 # Do a queue check for the controller
                 controller._check_command_queues()
 
@@ -101,6 +105,7 @@ class KinesisController():
 
             # With command queues checked, check for replies
             for controller in self.controllers.values():
+                # No connection check needed here, would have returned if it's disconnected
                 controller._check_reply_queues()
 
             # Check on interval

@@ -16,14 +16,16 @@ from kinesis.motor_stages.piezoStages import PiezoStage
 class BaseMotorController:
     """Base controller class manages serial communications."""
 
-    def __init__(self, port: str, device_type: str, bay_system: bool, stages: dict):
+    def __init__(self, name, port: str, device_type: str, bay_system: bool, stages: dict):
+        self.name = name
         self.device_type = device_type
         self.stages = stages
+        self.port = port
 
         self.serial = None
         self._in_buffer = bytearray()
 
-        self._open_serial(port)
+        self._open_serial(self.port)
 
         self.tree = {}
         chan_ident = 1
@@ -47,13 +49,23 @@ class BaseMotorController:
         for name, stage in self.stages.items():
             self.tree[name] = self.stages[name].tree
         self.tree = {
-            'type': self.device_type,
-            'motors': self.tree
+            'type': (lambda: self.device_type, None),
+            'motors': self.tree,
+            'connected': (lambda: self.connected, self.reconnect)
         }
+
+    def reconnect(self, val):
+        """Attempt to recreate the serial connection from the parameter tree."""
+        self._open_serial(self.port)
 
     def _open_serial(self, port: str):
         """Open the serial connection."""
-        self.ser = serial.Serial(port, baudrate=115200, bytesize=8, parity=serial.PARITY_NONE,stopbits=serial.STOPBITS_ONE, xonxoff=0, rtscts=True, timeout=1)
+        try:
+            self.ser = serial.Serial(port, baudrate=115200, bytesize=8, parity=serial.PARITY_NONE,stopbits=serial.STOPBITS_ONE, xonxoff=0, rtscts=True, timeout=1)
+            self.connected = True
+        except Exception as e:
+            logging.error(f"Could not create serial connection to controller {self.name}: {e}")
+            self.connected = False
 
     def port_is_open(self):
         """Check if the serial port is open.
@@ -62,10 +74,13 @@ class BaseMotorController:
         try:
             if not self.ser.is_open:
                 logging.debug("Serial port is not open.")
+                self.connected = False
                 return False
         except AttributeError:
-            logging.warning(f"No serial port is connected.")
+            logging.warning(f"No active serial connection for controller {self.name}.")
+            self.connected = False
             return False
+        self.connected = True
         return True
 
     def close_serial(self):
