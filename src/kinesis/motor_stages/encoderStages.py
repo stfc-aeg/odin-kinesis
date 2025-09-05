@@ -100,7 +100,7 @@ class EncoderStage(BaseMotorStage):
         self.target_position = pos
 
         if (self.target_position != self.current_position) and (
-            self.lower_limit <= self.target_position or self.target_position <= self.upper_limit):
+            self.lower_limit <= self.target_position and self.target_position <= self.upper_limit):
             pos = self.val_to_enc(pos, ValueType.POS)
             self.controller.move(pos, self)
 
@@ -126,7 +126,7 @@ class EncoderStage(BaseMotorStage):
         # Check if step moves beyond limit
         sign = 1 if direction else -1
         predicted_pos = self.current_position + self.jog_step_size*sign
-        if (self.lower_limit <= predicted_pos) or (predicted_pos <= self.upper_limit):
+        if (self.lower_limit <= predicted_pos) and (predicted_pos <= self.upper_limit):
             self.controller.move_jog(direction, self)
 
     def set_jog_mode(self, value):
