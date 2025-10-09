@@ -1,57 +1,53 @@
 """Class to manage some number of motor controllers."""
 
-from tornado.ioloop import PeriodicCallback
-
-from odin.adapters.adapter import (ApiAdapter, ApiAdapterRequest,
-                                   ApiAdapterResponse, request_types, response_types,
-                                   wants_metadata)
-from odin.util import decode_request_body
-
+from odin.adapters.adapter import (ApiAdapterResponse)
 from odin.adapters.parameter_tree import ParameterTree, ParameterTreeError
 
 # Motor imports
 from concurrent import futures
 from tornado.concurrent import run_on_executor
 
-import serial
 import time
 import logging
 import json
 
-from kinesis.cmds import CMD_RSP
-from kinesis.motor_controller import MotorController
+from kinesis.controllers.baseMotorController import BaseMotorController
+from kinesis.controllers.motController import MotController
+from kinesis.controllers.kim101_controller import KimController
 
 class KinesisError(Exception):
     """Simple exception class to wrap lower-level exceptions."""
     pass
 
 class KinesisController():
-    """Motor adapter class for the ODIN server.
-    """
-
+    """Motor adapter class for the ODIN server."""
     # For additional output information
     DEBUG = False
 
     # Thread executor used for background tasks
-    executor = futures.ThreadPoolExecutor(max_workers=1)
+    executor = futures.ThreadPoolExecutor(max_workers=2)
 
     def __init__(self, options):
-        """Initialize the KinesisAdapter object.
+        """Initialise the KinesisAdapter object.
 
-        This constructor Initializes the KinesisAdapter object, including launching a background
+        This constructor Initialises the KinesisAdapter object, including launching a background
         task if enabled by the adapter options passed as arguments.
 
         :param kwargs: keyword arguments specifying options
         """
-        self.options = options
         # Options
-        self.bg_await_reply_enable = bool(int(self.options.get('bg_await_reply_enable', 1)))
-        self.bg_await_reply_interval = int(self.options.get('bg_await_reply_interval', 0.5))
+        self.options = options
+        self.bg_tasks_enable = bool(int(self.options.get('bg_tasks_enable', 1)))
+        self.bg_await_reply_interval = float(self.options.get('bg_await_reply_interval', 0.3))
+        self.bg_check_position_interval = float(self.options.get('bg_check_position_interval', 0.5))
         device_config = self.options.get('device_config', 'test/config/devices.json')
 
+        self.current_command = None
+
+        self.tree = {}
 
         # Create controller children
-        self.controllers = {}
+        self.controllers: dict[str, BaseMotorController] = {}
         with open(device_config, "r") as file:
             devices = json.load(file)
 
@@ -59,28 +55,36 @@ class KinesisController():
                 controller_type = details['device_type']
                 stages = details['stages']
                 port = details['port']
-                self.controllers[name] = MotorController(port, controller_type, stages)
+                bay_system = details['bay_system']
 
+                if controller_type in ['KDC101']:
+                    self.controllers[name] = MotController(name, port, controller_type, bay_system, stages)
+                elif controller_type in ['KIM101']:
+                    self.controllers[name] = KimController(name, port, controller_type, bay_system, stages)
+                else:
+                    logging.debug(f"Controller {name} not supported type of controller.")
 
-        self._start_background_task()
-
-        self.param_tree = ParameterTree({
-            'vars': {
-                'current_command': (lambda: self.current_command, None),
-                'expected_response': (lambda: self.expected_response, None),
-                'task_interval': (lambda: self.bg_await_reply_interval, None)
-            },
-            'commands': {
-                'move_abs': (lambda: None, self.move_absolute),
-                'move_rel': (lambda: None, self.move_relative),
-                'home': (lambda: None, self.move_home),
-                'position': (lambda: self.get_position(), None)
-            }
-        })
-
-        logging.debug('DummyAdapter loaded')
+        logging.debug('KinesisAdapter loaded')
 
     # ------------ background functions ------------
+
+    @run_on_executor
+    def background_check_positions(self):
+        """Background task to check the positions of the motors.
+        This also serves as a 'heartbeat', checking that motors are still connected.
+        """
+        while self.bg_await_reply_enable:  # No need for more than one enable toggle here
+            for controller in self.controllers.values():
+                if not controller.connected:
+                    return
+                for name, motor in controller.stages.items():
+                    try:
+                        motor.get_current_position()
+                        # _recv_replies() handles multiple replies, so other thread can handle that
+                    except Exception as e:
+                        logging.error(f"Error checking position for motor {name}: {e}")
+            
+            time.sleep(self.bg_check_position_interval)
 
     @run_on_executor
     def background_await_reply(self):
@@ -89,31 +93,22 @@ class KinesisController():
         """
         while self.bg_await_reply_enable:
             # Only need to check for replies if there's an active command
-            
-            if self.current_command:
-                # Behaviour is otherwise standard receive-reply affair
-                reply = self.recv_reply()
-                rsp, params = self.decode_reply(reply)
-                logging.debug(f"cur_command: {self.current_command}. rsp: {rsp}. exp_rsp:{self.expected_response}")
-                if rsp == self.expected_response:
-                    logging.debug(f"Expected response achieved, moving through queue.")
-                    self.current_command = None
 
-                    # Is the queue empty?
-                    if not self.command_queue:
-                        logging.debug("Queue cleared.")
-                    # If it's not empty, do something
-                    else:
-                        cmd = self.command_queue.pop()
-                        logging.debug(f"New command from queue: {cmd}")
-                        # Commands saved to queue are a command and parameters
-                        self.send_cmd(
-                            command=cmd[0],
-                            command_params=cmd[1],
-                            await_response=True
-                        )
+            # Check every controller
+            for controller in self.controllers.values():
+                if not controller.connected:
+                    return
+                # Do a queue check for the controller
+                controller._check_command_queues()
 
-            # Check every 0.2s
+            # time.sleep(0.02)  # Was necessary delay previously but did not need repeating in every queue
+
+            # With command queues checked, check for replies
+            for controller in self.controllers.values():
+                # No connection check needed here, would have returned if it's disconnected
+                controller._check_reply_queues()
+
+            # Check on interval
             time.sleep(self.bg_await_reply_interval)
 
     def _start_background_task(self):
@@ -125,6 +120,7 @@ class KinesisController():
 
         # Run the background thread task in the thread execution pool
         self.background_await_reply()
+        self.background_check_positions()
 
     def _stop_background_task(self):
         """Stop the background tasks."""
@@ -134,7 +130,25 @@ class KinesisController():
     # ------------ Adapter functions ------------
 
     def initialize(self, adapters):
-        logging.debug("DummyAdapter initialized with %d adapters", len(adapters))
+        """Post-init function."""
+        self.adapters = adapters
+        if 'sequencer' in self.adapters:
+            self.adapters['sequencer'].add_context('kinesis', self)
+
+        for name, controller in self.controllers.items():
+            controller.initialize()
+
+            self.tree[name] = controller.tree
+
+        try:
+            self.param_tree = ParameterTree({
+                'bg_task_interval': (lambda: self.bg_await_reply_interval, None),
+                'controllers': self.tree
+            })
+        except Exception as e:
+            logging.debug(f"error: {e}")
+        logging.debug("Starting background task.")
+        self._start_background_task()
 
     def get(self, path, with_metadata=False):
         """Get parameter data from controller.
@@ -149,7 +163,7 @@ class KinesisController():
             return self.param_tree.get(path, with_metadata)
         except ParameterTreeError as error:
             logging.error(error)
-            raise LiveXError(error)
+            raise KinesisError(error)
 
     def set(self, path, data):
         """Set parameters in the controller.
@@ -165,7 +179,7 @@ class KinesisController():
             self.param_tree.set(path, data)
         except ParameterTreeError as error:
             logging.error(error)
-            raise LiveXError(error)
+            raise KinesisError(error)
 
     def delete(self, path, request):
         """Handle an HTTP DELETE request.
@@ -192,6 +206,5 @@ class KinesisController():
         """
         logging.debug("KinesisAdapter cleanup")
         self.bg_await_reply_enable = False
-
-class KinesisError(Exception):
-    pass
+        for controller in self.controllers.values():
+            controller.close_serial()
