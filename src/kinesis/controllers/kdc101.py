@@ -85,34 +85,24 @@ class KDC101:
             'type': (lambda: self.device_type, None),
             'motors': {
                 'position': {
-                    'home': (lambda: None, lambda: self.home()),
-                    'set_target_pos': (lambda: self.stage['target_position'],
-                                      lambda pos: self.set_target_position(pos)),
+                    'home': (lambda: None, self.move_home),
+                    'set_target_pos': (lambda: self.stage['target_position'], self.set_target_position),
                     'current_pos': (lambda: self.stage['current_position'], None),
-                    'stop': (lambda: None, lambda: self.stop())
+                    'stop': (lambda: None, self.stop)
                 },
                 'jog': {
-                    'mode': (lambda: self.stage['jog_mode'],
-                            lambda val: self.set_jog_mode(val)),
-                    'step_size': (lambda: self.stage['jog_step_size'],
-                                 lambda val: self.set_jog_step_size(val)),
-                    'min_vel': (lambda: self.stage['jog_min_vel'],
-                               lambda val: self.set_jog_min_vel(val)),
-                    'accel': (lambda: self.stage['jog_accel'],
-                             lambda val: self.set_jog_accel(val)),
-                    'max_vel': (lambda: self.stage['jog_max_vel'],
-                               lambda val: self.set_jog_max_vel(val)),
-                    'stop_mode': (lambda: self.stage['jog_stop_mode'],
-                                 lambda val: self.set_jog_stop_mode(val)),
-                    'step': (lambda: None, lambda direction: self.jog(direction)),
-                    'reverse': (lambda: self.stage['reverse_jog'],
-                               lambda rev: self.set_reverse_jog(rev))
+                    'mode': (lambda: self.stage['jog_mode'], self.set_jog_mode),
+                    'step_size': (lambda: self.stage['jog_step_size'], self.set_jog_step_size),
+                    'min_vel': (lambda: self.stage['jog_min_vel'], self.set_jog_min_vel),
+                    'accel': (lambda: self.stage['jog_accel'], self.set_jog_accel),
+                    'max_vel': (lambda: self.stage['jog_max_vel'], self.set_jog_max_vel),
+                    'stop_mode': (lambda: self.stage['jog_stop_mode'], self.set_jog_stop_mode),
+                    'step': (lambda: None, self.jog), 
+                    'reverse': (lambda: self.stage['reverse_jog'], self.set_reverse_jog)
                 },
                 'limits': {
-                    'upper_limit': (lambda: self.stage['upper_limit'],
-                                   lambda lim: self.set_upper_limit(lim)),
-                    'lower_limit': (lambda: self.stage['lower_limit'],
-                                   lambda lim: self.set_lower_limit(lim))
+                    'upper_limit': (lambda: self.stage['upper_limit'], self.set_upper_limit),
+                    'lower_limit': (lambda: self.stage['lower_limit'], self.set_lower_limit)
                 }
             },
             'connected': (lambda: self.connected, self.reconnect)
@@ -340,14 +330,14 @@ class KDC101:
 
     # -------- Motor Control Methods --------
 
-    def move_home(self):
+    def move_home(self, val):
         """Send home command."""
         self.stage['homing'] = True
         if not self.port_is_open():
             return
         self.stage['await_queue'].put((MSG.mot_move_home, {}))
 
-    def move_stop(self):
+    def move_stop(self, val):
         """Send stop command."""
         self.stage['homing'] = False
         self.stage['moving'] = False
