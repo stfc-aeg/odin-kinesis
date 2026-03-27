@@ -1,53 +1,50 @@
 """KDC101 motor controller for Thorlabs devices.
 
 Manages serial communications and motor control for KDC101 devices.
+Stage encoder conversions are pulled from stage_specs.
 Stage configuration drives behavior; encoder conversion factors come from stage_specs.
 """
-import struct
-import serial
 import logging
 import itertools
 from queue import Queue, PriorityQueue
 
+from kinesis.controllers.serial_controller import SerialController
 from kinesis.responses import mID_to_func
 from kinesis.stage_specs import val_to_enc, enc_to_val
 import kinesis.messages as MSG
 
-
-class KDC101:
+class KDC101(SerialController):
     """Motor controller for KDC101 Thorlabs devices.
     
     Manages serial communications, command queuing, and motor control.
     Stage configuration drives behavior; encoder conversion factors come from stage_specs.
     """
 
-    def __init__(self, name, port, device_type, bay_system, stage_details):
+    def __init__(self, name, port, device_type, stage_details):
         """Initialize KDC101 controller.
         
         :param name: Controller name/identifier
         :param port: Serial port (e.g., '/dev/ttyUSB0')
         :param device_type: Device type string (e.g., 'KDC101')
-        :param bay_system: Whether this is a bay/card system
         :param stage_details: Stage config dict {stage_type, upper_limit, lower_limit}
         """
-        self.name = name
-        self.device_type = device_type
-        self.port = port
-        self.bay_system = bay_system
+        # Initialize base class
+        super().__init__(name, port, device_type)
         
-        self.serial = None
-        self._in_buffer = bytearray()
-        self.connected = False
+        # KDC101-specific attributes for base class
+        self.chan_ident = 1
+        self.destination = 0x50
+        
         self.tree = {}
         
         # Store single stage configuration and runtime state
         self.stage = {
             # Configuration
-            'chan_ident': 1,
+            'chan_ident': self.chan_ident,
             'stage_type': stage_details.get('stage_type', 'MTS50-Z8'),
             'upper_limit': stage_details.get('upper_limit', 25.0),
             'lower_limit': stage_details.get('lower_limit', 0.0),
-            'destination': 0x50,
+            'destination': self.destination,
             
             # Runtime state
             'current_position': 0.0,
@@ -72,18 +69,19 @@ class KDC101:
             '_queue_counter': itertools.count()
         }
         
-        # Open serial connection
-        self._open_serial(self.port)
+        # Set base class queue references
+        self.await_queue = self.stage['await_queue']
+        self.instant_queue = self.stage['instant_queue']
 
     def initialize(self):
-        """Post-init setup - query device parameters and build parameter tree."""
+        """Post-init setup - get parameters and build parameter tree."""
         # Query initial jog parameters
         self.get_jogparams()
         
         # Build parameter tree
         self.tree = {
             'type': (lambda: self.device_type, None),
-            'motors': {
+            'motor': {
                 'position': {
                     'home': (lambda: None, self.move_home),
                     'set_target_pos': (lambda: self.stage['target_position'], self.set_target_position),
@@ -108,128 +106,6 @@ class KDC101:
             'connected': (lambda: self.connected, self.reconnect)
         }
 
-    # -------- Serial Communication --------
-
-    def _open_serial(self, port):
-        """Open serial connection to device."""
-        try:
-            self.serial = serial.Serial(
-                port, 
-                baudrate=115200, 
-                bytesize=8, 
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE, 
-                xonxoff=0, 
-                rtscts=True, 
-                timeout=1
-            )
-            self.connected = True
-            logging.debug(f"Opened serial connection on {port}")
-        except Exception as e:
-            logging.error(f"Could not open serial connection to {port}: {e}")
-            self.connected = False
-
-    def port_is_open(self):
-        """Check if serial port is open and connected."""
-        if not self.serial:
-            self.connected = False
-            return False
-        
-        try:
-            if not self.serial.is_open:
-                logging.debug("Serial port is not open.")
-                self.connected = False
-                return False
-        except (AttributeError, Exception):
-            logging.warning(f"Serial connection issue for {self.name}")
-            self.connected = False
-            return False
-        
-        self.connected = True
-        return True
-
-    def close_serial(self):
-        """Close serial connection."""
-        if not self.port_is_open():
-            return
-        self.serial.close()
-        logging.debug("Serial connection closed.")
-
-    def reconnect(self, val):
-        """Attempt to reconnect to device."""
-        self._open_serial(self.port)
-
-    def send_cmd(self, command_fn, command_args):
-        """Send a command to the device.
-        
-        :param command_fn: Message building function
-        :param command_args: Arguments for the message function
-        :return: Expected response info dict
-        """
-        if not self.port_is_open():
-            return None
-
-        data = command_fn(
-            cID=self.stage['chan_ident'],
-            dest=self.stage['destination'],
-            source=0x01,
-            **(command_args or {})
-        )
-        
-        self.serial.write(data['bytes'])
-        return data.get('exp_rsp', None)
-
-    def _recv_reply(self):
-        """Receive and parse replies from device."""
-        if not self.port_is_open():
-            return []
-        
-        # Fill buffer from serial
-        while self.serial.in_waiting > 0:
-            self._in_buffer.extend(self.serial.read())
-        
-        replies = []
-        
-        # Process complete messages from buffer
-        while len(self._in_buffer) >= 6:
-            # Check message header
-            mID, length = struct.unpack_from("<HH", self._in_buffer)
-            
-            if mID not in mID_to_func:
-                logging.debug(f"Unknown message ID {hex(mID)}")
-                self._in_buffer = self._in_buffer[1:]
-                continue
-
-            # Check address fields
-            long = self._in_buffer[4] & 0x80
-            dest = self._in_buffer[4] & ~0x80
-            source = self._in_buffer[5]
-            
-            if dest not in (0x00, 0x01) or source not in (
-                0x00, 0x11, 0x21, 0x22, 0x23, 0x24,
-                0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x50):
-                logging.debug(f"Invalid src/dest for {hex(mID)}: src={source}, dest={dest}")
-                self._in_buffer = self._in_buffer[1:]
-                continue
-
-            # Check message length
-            if long and length > 255:
-                logging.debug(f"Invalid length {length}")
-                self._in_buffer = self._in_buffer[1:]
-                continue
-            
-            msg_length = 6 + (length if long else 0)
-
-            # Wait for complete message
-            if len(self._in_buffer) < msg_length:
-                break
-            
-            msg = bytes(self._in_buffer[:msg_length])
-            replies.append(msg)
-            self._in_buffer = self._in_buffer[msg_length:]
-
-        return replies
-
     # -------- Unit Conversion --------
 
     def val_to_enc(self, val, val_type):
@@ -239,50 +115,6 @@ class KDC101:
     def enc_to_val(self, enc, val_type):
         """Convert encoder counts to physical value."""
         return enc_to_val(self.stage['stage_type'], enc, val_type)
-
-    # -------- Command and Reply Queue Processing --------
-
-    def _check_command_queues(self):
-        """Process instant and await command queues."""
-        # Process instant queue
-        if not self.stage['instant_queue'].empty():
-            priority, (cmd_fn, cmd_args) = self.stage['instant_queue'].get()
-            exp_rsp = self.send_cmd(cmd_fn, cmd_args)
-            if exp_rsp:
-                self.stage['current_command'] = cmd_fn.__name__
-                self.stage['expected_response'] = exp_rsp['name']
-        
-        # Process await queue if no active command
-        if (self.stage['current_command'] is None) and (not self.stage['await_queue'].empty()):
-            cmd_fn, cmd_args = self.stage['await_queue'].get()
-            exp_rsp = self.send_cmd(cmd_fn, cmd_args)
-            if exp_rsp:
-                self.stage['current_command'] = cmd_fn.__name__
-                self.stage['expected_response'] = exp_rsp['name']
-
-    def _check_reply_queues(self):
-        """Process device replies and advance command queues."""
-        replies = self._recv_reply()
-
-        for reply in replies:
-            response = self._decode_reply(reply)
-
-            if not response:
-                continue
-
-            # If expected response received, advance to next command
-            if response == self.stage['expected_response']:
-                logging.debug(f"Response: {response}")
-
-                self.stage['current_command'] = None
-                self.stage['expected_response'] = None
-
-                if not self.stage['await_queue'].empty():
-                    cmd_fn, cmd_args = self.stage['await_queue'].get()
-                    exp_rsp = self.send_cmd(cmd_fn, cmd_args)
-                    if exp_rsp:
-                        self.stage['current_command'] = cmd_fn.__name__
-                        self.stage['expected_response'] = exp_rsp['name']
 
     def _decode_reply(self, reply):
         """Decode device reply and update stage state.

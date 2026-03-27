@@ -1,7 +1,7 @@
 """Stage encoder conversion specifications.
 
-Maps stage model names to their encoder scale factors for converting between
-physical units (mm, mm/s, mm/s^2) and device encoder counts.
+Map stage model names to encoder scale factors to convert between physical units
+and device encoder counts.
 """
 
 STAGE_SPECS = {
@@ -17,9 +17,9 @@ STAGE_SPECS = {
         'encoder_counts_per_mm_s': 772981.3692,
         'encoder_counts_per_mm_s2': 263.8443072,
     },
-    'PD1VM': {
+    'PD1VM': {  # Placeholder as example, piezo handling is totally different
         'description': 'Thorlabs PD1VM piezo stage',
-        'encoder_counts_per_mm': 1.0,  # Placeholder - piezo handling differs
+        'encoder_counts_per_mm': 1.0,
         'encoder_counts_per_mm_s': 1.0,
         'encoder_counts_per_mm_s2': 1.0,
     },

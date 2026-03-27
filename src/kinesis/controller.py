@@ -12,7 +12,6 @@ import logging
 import json
 
 from kinesis.controllers.kdc101 import KDC101
-from kinesis.controllers.kim101_controller import KimController
 
 class KinesisError(Exception):
     """Simple exception class to wrap lower-level exceptions."""
@@ -51,34 +50,19 @@ class KinesisController():
             devices = json.load(file)
 
             for name, details in devices.items():
-                controller_type = details.get('device_type')
-                stage_config = details.get('stages')
-                port = details.get('port')
-                bay_system = details.get('bay_system')
+                controller_type = details.get('device_type', 'kdc101')
+                stage_config = details.get('stages', {})
+                port = details.get('port', '/dev/ttyUSB0')
 
-                controller_class = None
-
-                # If controller_type is a class object directly
-                if isinstance(controller_type, type):
-                    controller_class = controller_type
-
-                # Allow explicit class in config payload
-                elif isinstance(details.get('controller_class'), type):
-                    controller_class = details.get('controller_class')
-
-                # String-based type mapping
-                elif isinstance(controller_type, str):
-                    normalized = controller_type.strip().lower()
-                    if normalized == 'kdc101':
-                        controller_class = KDC101
-                    elif normalized == 'kim101':
-                        controller_class = KimController
+                normalised = controller_type.strip().lower()
+                if normalised == 'kdc101':
+                    controller_class = KDC101
 
                 if controller_class is None:
                     logging.debug(f"Controller {name} not supported type of controller: {controller_type}")
                     continue
 
-                self.controllers[name] = controller_class(name, port, controller_type, bay_system, stage_config)
+                self.controllers[name] = controller_class(name, port, controller_type, stage_config)
 
         logging.debug('KinesisAdapter loaded')
 
