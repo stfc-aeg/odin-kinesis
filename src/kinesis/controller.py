@@ -11,8 +11,7 @@ import time
 import logging
 import json
 
-from kinesis.controllers.baseMotorController import BaseMotorController
-from kinesis.controllers.motController import MotController
+from kinesis.controllers.kdc101 import KDC101
 from kinesis.controllers.kim101_controller import KimController
 
 class KinesisError(Exception):
@@ -47,22 +46,39 @@ class KinesisController():
         self.tree = {}
 
         # Create controller children
-        self.controllers: dict[str, BaseMotorController] = {}
+        self.controllers: dict[str, KDC101] = {}
         with open(device_config, "r") as file:
             devices = json.load(file)
 
-            for name,details in devices.items():
-                controller_type = details['device_type']
-                stages = details['stages']
-                port = details['port']
-                bay_system = details['bay_system']
+            for name, details in devices.items():
+                controller_type = details.get('device_type')
+                stage_config = details.get('stages')
+                port = details.get('port')
+                bay_system = details.get('bay_system')
 
-                if controller_type in ['KDC101']:
-                    self.controllers[name] = MotController(name, port, controller_type, bay_system, stages)
-                elif controller_type in ['KIM101']:
-                    self.controllers[name] = KimController(name, port, controller_type, bay_system, stages)
-                else:
-                    logging.debug(f"Controller {name} not supported type of controller.")
+                controller_class = None
+
+                # If controller_type is a class object directly
+                if isinstance(controller_type, type):
+                    controller_class = controller_type
+
+                # Allow explicit class in config payload
+                elif isinstance(details.get('controller_class'), type):
+                    controller_class = details.get('controller_class')
+
+                # String-based type mapping
+                elif isinstance(controller_type, str):
+                    normalized = controller_type.strip().lower()
+                    if normalized == 'kdc101':
+                        controller_class = KDC101
+                    elif normalized == 'kim101':
+                        controller_class = KimController
+
+                if controller_class is None:
+                    logging.debug(f"Controller {name} not supported type of controller: {controller_type}")
+                    continue
+
+                self.controllers[name] = controller_class(name, port, controller_type, bay_system, stage_config)
 
         logging.debug('KinesisAdapter loaded')
 
@@ -77,12 +93,11 @@ class KinesisController():
             for controller in self.controllers.values():
                 if not controller.connected:
                     return
-                for name, motor in controller.stages.items():
-                    try:
-                        motor.get_current_position()
-                        # _recv_replies() handles multiple replies, so other thread can handle that
-                    except Exception as e:
-                        logging.error(f"Error checking position for motor {name}: {e}")
+                try:
+                    controller.get_current_position()
+                    # _recv_replies() handles multiple replies, so other thread can handle that
+                except Exception as e:
+                    logging.error(f"Error checking position for controller {controller.name}: {e}")
             
             time.sleep(self.bg_check_position_interval)
 
