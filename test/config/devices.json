@@ -6,6 +6,8 @@
             "stage_type": "MTS50-Z8",
             "upper_limit": 10,
             "lower_limit": -10
-        }
+        },
+        "step_forward_label": "Move Up",
+        "step_backward_label": "Move Down"
     }
 }

@@ -20,7 +20,7 @@ class KDC101(SerialController):
     Stage configuration drives behavior; encoder conversion factors come from stage_specs.
     """
 
-    def __init__(self, name, port, device_type, stage_details):
+    def __init__(self, name, port, device_type, stage_details, step_forward_label, step_backward_label):
         """Initialize KDC101 controller.
         
         :param name: Controller name/identifier
@@ -29,7 +29,7 @@ class KDC101(SerialController):
         :param stage_details: Stage config dict {stage_type, upper_limit, lower_limit}
         """
         # Initialize base class
-        super().__init__(name, port, device_type)
+        super().__init__(name, port, device_type, step_forward_label, step_backward_label)
         
         # KDC101-specific attributes for base class
         self.chan_ident = 1
@@ -103,7 +103,9 @@ class KDC101(SerialController):
                     'lower_limit': (lambda: self.stage['lower_limit'], self.set_lower_limit)
                 }
             },
-            'connected': (lambda: self.connected, self.reconnect)
+            'connected': (lambda: self.connected, self.reconnect),
+            'forward_label': (lambda: self.step_forward_label, None),
+            'backward_label': (lambda: self.step_backward_label, None)
         }
 
     # -------- Unit Conversion --------

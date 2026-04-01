@@ -14,7 +14,7 @@ class SerialController(ABC):
     If a subclass has multiple stages, it may need unique handling of reply queues to determine
     response destinations.
     """
-    def __init__(self, name, port, device_type):
+    def __init__(self, name, port, device_type, step_forward_label, step_backward_label):
         """Initialize Thorlabs controller.
 
         :param name: Controller name/identifier
@@ -24,6 +24,9 @@ class SerialController(ABC):
         self.name = name
         self.device_type = device_type
         self.port = port
+
+        self.step_forward_label = step_forward_label
+        self.step_backward_label = step_backward_label
 
         self.serial = None
         self._in_buffer = bytearray()
