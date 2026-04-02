@@ -53,6 +53,8 @@ class KinesisController():
                 controller_type = details.get('device_type', 'kdc101')
                 stage_config = details.get('stages', {})
                 port = details.get('port', '/dev/ttyUSB0')
+                step_forward_label = details.get('step_forward_label', 'Step Forward')
+                step_backward_label = details.get('step_backward_label', 'Step Backward')
 
                 normalised = controller_type.strip().lower()
                 if normalised == 'kdc101':
@@ -62,7 +64,10 @@ class KinesisController():
                     logging.debug(f"Controller {name} not supported type of controller: {controller_type}")
                     continue
 
-                self.controllers[name] = controller_class(name, port, controller_type, stage_config)
+                self.controllers[name] = controller_class(
+                    name, port, controller_type, stage_config,
+                    step_forward_label, step_backward_label
+                )
 
         logging.debug('KinesisAdapter loaded')
 
