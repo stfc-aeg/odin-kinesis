@@ -3,11 +3,24 @@
         "device_type": "KDC101",
         "port": "/dev/ttyUSB0",
         "stages": {
-            "stage_type": "MTS50-Z8",
+            "stage_type": "MTS25-Z8",
             "upper_limit": 10,
-            "lower_limit": -10
+            "lower_limit": -10,
+            "reverse_step_directions": false
         },
-        "step_forward_label": "Move Up",
-        "step_backward_label": "Move Down"
+        "step_increase_label": "Move Forward",
+        "step_decrease_label": "Move Backward"
+    },
+    "furnace_b": {
+        "device_type": "KDC101",
+        "port": "/dev/ttyUSB1",
+        "stages": {
+            "stage_type": "MTS50-Z8",
+            "upper_limit": 15,
+            "lower_limit": -5,
+            "reverse_step_directions": true
+        },
+        "step_increase_label": "Move Up",
+        "step_decrease_label": "Move Down"
     }
 }

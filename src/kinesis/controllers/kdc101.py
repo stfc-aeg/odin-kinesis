@@ -20,16 +20,16 @@ class KDC101(SerialController):
     Stage configuration drives behavior; encoder conversion factors come from stage_specs.
     """
 
-    def __init__(self, name, port, device_type, stage_details, step_forward_label, step_backward_label):
+    def __init__(self, name, port, device_type, stage_details, step_increase_label, step_decrease_label):
         """Initialize KDC101 controller.
         
         :param name: Controller name/identifier
         :param port: Serial port (e.g., '/dev/ttyUSB0')
         :param device_type: Device type string (e.g., 'KDC101')
-        :param stage_details: Stage config dict {stage_type, upper_limit, lower_limit}
+        :param stage_details: Stage config dict {stage_type, upper_limit, lower_limit} or dict of stages
         """
         # Initialize base class
-        super().__init__(name, port, device_type, step_forward_label, step_backward_label)
+        super().__init__(name, port, device_type, step_increase_label, step_decrease_label)
         
         # KDC101-specific attributes for base class
         self.chan_ident = 1
@@ -37,13 +37,26 @@ class KDC101(SerialController):
         
         self.tree = {}
         
+        # If stage_details is a dict of stages, take the first one (KDC101 can do only one)
+        if isinstance(stage_details, dict) and 'stage_type' not in stage_details:
+            # stage_details is {'stage_name': stage_config}
+            stage_names = list(stage_details.keys())
+            if stage_names:
+                stage_name = stage_names[0]
+                stage_config = stage_details[stage_name]
+            else:
+                stage_config = {}
+        else:
+            # Otherwise, stage_details is the stage config directly
+            stage_config = stage_details
+        
         # Store single stage configuration and runtime state
         self.stage = {
             # Configuration
             'chan_ident': self.chan_ident,
-            'stage_type': stage_details.get('stage_type', 'MTS50-Z8'),
-            'upper_limit': stage_details.get('upper_limit', 25.0),
-            'lower_limit': stage_details.get('lower_limit', 0.0),
+            'stage_type': stage_config.get('stage_type', 'MTS50-Z8'),
+            'upper_limit': stage_config.get('upper_limit', 25.0),
+            'lower_limit': stage_config.get('lower_limit', 0.0),
             'destination': self.destination,
             
             # Runtime state
@@ -51,7 +64,6 @@ class KDC101(SerialController):
             'target_position': 0.0,
             'moving': False,
             'homing': False,
-            'reverse_jog': False,
             'current_command': None,
             'expected_response': None,
             
@@ -62,6 +74,7 @@ class KDC101(SerialController):
             'jog_accel': 0.5,        # mm/s^2
             'jog_max_vel': 1.0,      # mm/s
             'jog_stop_mode': 0x02,   # 0x01=instant, 0x02=profiled
+            'reverse_jog': stage_config.get('reverse_step_directions', False),     # Whether to reverse jog direction (if True, forward/backward commands are swapped)
             
             # Command queues
             'await_queue': Queue(maxsize=0),
@@ -95,8 +108,7 @@ class KDC101(SerialController):
                     'accel': (lambda: self.stage['jog_accel'], self.set_jog_accel),
                     'max_vel': (lambda: self.stage['jog_max_vel'], self.set_jog_max_vel),
                     'stop_mode': (lambda: self.stage['jog_stop_mode'], self.set_jog_stop_mode),
-                    'step': (lambda: None, self.jog), 
-                    'reverse': (lambda: self.stage['reverse_jog'], self.set_reverse_jog)
+                    'step': (lambda: None, self.jog)
                 },
                 'limits': {
                     'upper_limit': (lambda: self.stage['upper_limit'], self.set_upper_limit),
@@ -104,8 +116,8 @@ class KDC101(SerialController):
                 }
             },
             'connected': (lambda: self.connected, self.reconnect),
-            'forward_label': (lambda: self.step_forward_label, None),
-            'backward_label': (lambda: self.step_backward_label, None)
+            'increase_label': (lambda: self.step_increase_label, None),
+            'decrease_label': (lambda: self.step_decrease_label, None)
         }
 
     # -------- Unit Conversion --------
@@ -196,6 +208,7 @@ class KDC101(SerialController):
 
     def move_jog(self, direction):
         """Execute jog movement."""
+        self.stage['moving'] = True
         if not self.port_is_open():
             return
         
@@ -249,9 +262,10 @@ class KDC101(SerialController):
         self.move_stop()
 
     def jog(self, direction):
-        """Execute a jog movement."""
+        """Execute a jog movement in the specified direction.
+        :param direction: bool. Forward=True. Reverse with reverse_step_direction in devices.json
+        """
         direction = bool(direction)
-        
         # Apply reverse setting
         if self.stage['reverse_jog']:
             direction = not direction
@@ -262,10 +276,6 @@ class KDC101(SerialController):
         
         if self.stage['lower_limit'] <= predicted_pos <= self.stage['upper_limit']:
             self.move_jog(direction)
-
-    def set_reverse_jog(self, rev):
-        """Reverse (True) or unreverse (False) the jog direction."""
-        self.stage['reverse_jog'] = bool(rev)
 
     # -------- Jog Parameter Setters --------
 
