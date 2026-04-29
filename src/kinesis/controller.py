@@ -11,9 +11,7 @@ import time
 import logging
 import json
 
-from kinesis.controllers.baseMotorController import BaseMotorController
-from kinesis.controllers.motController import MotController
-from kinesis.controllers.kim101_controller import KimController
+from kinesis.controllers.kdc101 import KDC101
 
 class KinesisError(Exception):
     """Simple exception class to wrap lower-level exceptions."""
@@ -47,22 +45,29 @@ class KinesisController():
         self.tree = {}
 
         # Create controller children
-        self.controllers: dict[str, BaseMotorController] = {}
+        self.controllers: dict[str, KDC101] = {}
         with open(device_config, "r") as file:
             devices = json.load(file)
 
-            for name,details in devices.items():
-                controller_type = details['device_type']
-                stages = details['stages']
-                port = details['port']
-                bay_system = details['bay_system']
+            for name, details in devices.items():
+                controller_type = details.get('device_type', 'kdc101')
+                stage_config = details.get('stages', {})
+                port = details.get('port', '/dev/ttyUSB0')
+                step_forward_label = details.get('step_forward_label', 'Step Forward')
+                step_backward_label = details.get('step_backward_label', 'Step Backward')
 
-                if controller_type in ['KDC101']:
-                    self.controllers[name] = MotController(name, port, controller_type, bay_system, stages)
-                elif controller_type in ['KIM101']:
-                    self.controllers[name] = KimController(name, port, controller_type, bay_system, stages)
-                else:
-                    logging.debug(f"Controller {name} not supported type of controller.")
+                normalised = controller_type.strip().lower()
+                if normalised == 'kdc101':
+                    controller_class = KDC101
+
+                if controller_class is None:
+                    logging.debug(f"Controller {name} not supported type of controller: {controller_type}")
+                    continue
+
+                self.controllers[name] = controller_class(
+                    name, port, controller_type, stage_config,
+                    step_forward_label, step_backward_label
+                )
 
         logging.debug('KinesisAdapter loaded')
 
@@ -77,12 +82,11 @@ class KinesisController():
             for controller in self.controllers.values():
                 if not controller.connected:
                     return
-                for name, motor in controller.stages.items():
-                    try:
-                        motor.get_current_position()
-                        # _recv_replies() handles multiple replies, so other thread can handle that
-                    except Exception as e:
-                        logging.error(f"Error checking position for motor {name}: {e}")
+                try:
+                    controller.get_current_position()
+                    # _recv_replies() handles multiple replies, so other thread can handle that
+                except Exception as e:
+                    logging.error(f"Error checking position for controller {controller.name}: {e}")
             
             time.sleep(self.bg_check_position_interval)
 
