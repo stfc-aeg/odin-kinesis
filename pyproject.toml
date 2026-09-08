@@ -13,7 +13,7 @@ classifiers = [
 ]
 description = "Thorlabs motor control for ODIN"
 dependencies = [
-    "odin-control @ git+https://git@github.com/odin-detector/odin-control.git@1.5.0",
+    "odin-control>=2.0.0",
     "pyserial"
 ]
 dynamic = ["version"]
