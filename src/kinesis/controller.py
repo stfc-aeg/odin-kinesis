@@ -1,7 +1,7 @@
 """Class to manage some number of motor controllers."""
 
-from odin.adapters.adapter import (ApiAdapterResponse)
-from odin.adapters.parameter_tree import ParameterTree, ParameterTreeError
+from odin_control.adapters.adapter import ApiAdapterResponse
+from odin_control.adapters.parameter_tree import ParameterTree, ParameterTreeError
 
 # Motor imports
 from concurrent import futures

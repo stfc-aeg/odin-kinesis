@@ -1,0 +1,3 @@
+[submodule "odin-kinesis-ui"]
+	path = odin-kinesis-ui
+	url = https://github.com/stfc-aeg/odin-kinesis-ui

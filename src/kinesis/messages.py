@@ -1,5 +1,5 @@
 """File to manage Thorlabs APT communications protocol messages."""
-from typing import Optional, Dict, TypedDict
+from typing import Optional, TypedDict
 import struct
 
 class ExpRsp(TypedDict):
